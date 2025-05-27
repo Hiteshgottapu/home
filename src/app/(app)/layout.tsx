@@ -1,3 +1,4 @@
+
 "use client";
 import { useEffect, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
@@ -5,17 +6,17 @@ import { useAuth } from '@/contexts/AuthContext';
 import { AppSidebar } from '@/components/layout/Sidebar';
 import { AppHeader } from '@/components/layout/Header';
 import { Loader2 } from 'lucide-react';
-import { SidebarProvider } from '@/components/ui/sidebar'; // Import SidebarProvider
+import { SidebarProvider } from '@/components/ui/sidebar'; 
 
 export default function AppLayout({ children }: { children: ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, firebaseUser } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
+    if (!isLoading && (!isAuthenticated || !firebaseUser)) { // Check both for robustness
       router.replace('/auth/login');
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAuthenticated, firebaseUser, isLoading, router]);
 
   if (isLoading) {
     return (
@@ -25,8 +26,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!isAuthenticated) {
-    // This will be briefly shown before redirect effect kicks in, or if stuck.
+  if (!isAuthenticated || !firebaseUser) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-background">
         <p>Redirecting to login...</p>
@@ -36,8 +36,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <SidebarProvider defaultOpen={true}> {/* Wrap with SidebarProvider */}
-      <div className="flex min-h-screen w-full bg-muted/40"> {/* Use muted/40 for a very light textured background for the main area */}
+    <SidebarProvider defaultOpen={true}>
+      <div className="flex min-h-screen w-full bg-muted/40">
         <AppSidebar />
         <div className="flex flex-1 flex-col">
           <AppHeader />

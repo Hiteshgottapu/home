@@ -1,15 +1,20 @@
+
 "use client";
 import type { UserProfile, HealthGoal, AiFeedbackPreferences } from '@/types';
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { onAuthStateChanged, User as FirebaseUser, signOut, ConfirmationResult, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth'; // Added signInWithPhoneNumber
+import { auth } from '@/lib/firebase'; 
 
 interface AuthContextType {
   isAuthenticated: boolean;
-  user: UserProfile | null;
-  login: (phone: string, otp: string) => Promise<boolean>;
+  firebaseUser: FirebaseUser | null; 
+  userProfile: UserProfile | null; 
+  loginWithPhoneNumber: (phoneNumber: string, appVerifier: RecaptchaVerifier) => Promise<ConfirmationResult | null>;
+  confirmOtp: (confirmationResult: ConfirmationResult, otp: string) => Promise<boolean>;
   logout: () => void;
   isLoading: boolean;
-  updateUserProfile: (updatedProfileData: Partial<UserProfile>) => void;
+  updateUserProfileState: (updatedProfileData: Partial<UserProfile>) => void;
   addHealthGoal: (goal: Omit<HealthGoal, 'id'>) => void;
   updateHealthGoal: (updatedGoal: HealthGoal) => void;
   updateAiPreferences: (preferences: Partial<AiFeedbackPreferences>) => void;
@@ -17,117 +22,148 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const initialMockUser: UserProfile = {
-  id: 'user123',
-  name: 'Alex Ryder',
-  phoneNumber: '+11234567890',
-  email: 'alex.ryder@example.com',
-  dateOfBirth: '1985-07-15',
-  allergies: ['Penicillin', 'Peanuts'],
-  riskFactors: { smoking: 'former', hypertension: 'false' },
+const initialMockUserProfileData: Omit<UserProfile, 'id' | 'phoneNumber' | 'email'> = {
+  name: 'New User', 
+  dateOfBirth: undefined,
+  allergies: [],
+  riskFactors: {},
   aiFeedbackPreferences: {
     symptomExplainabilityLevel: 'brief',
     nudgeFrequency: 'medium',
   },
-  healthGoals: [
-    { id: 'goal1', description: 'Drink 8 glasses of water daily', status: 'in_progress', targetDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
-    { id: 'goal2', description: 'Walk 10,000 steps 5 times a week', status: 'pending', targetDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
-    { id: 'goal3', description: 'Meditate for 10 minutes daily', status: 'completed' },
-  ],
+  healthGoals: [],
 };
 
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser] = useState<UserProfile | null>(null);
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
-    const storedAuth = localStorage.getItem('vitaLogProAuth');
-    const storedUser = localStorage.getItem('vitaLogProUser');
-    if (storedAuth === 'true' && storedUser) {
-      setIsAuthenticated(true);
-      setUser(JSON.parse(storedUser));
-    } else if (storedAuth === 'true') { // Fallback if user data is missing
-      setIsAuthenticated(true);
-      setUser(initialMockUser); // Set to initial mock if just auth flag is present
-      localStorage.setItem('vitaLogProUser', JSON.stringify(initialMockUser));
-    }
-    setIsLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setIsLoading(true);
+      if (user) {
+        setFirebaseUser(user);
+        const storedUserProfile = localStorage.getItem(`vitaLogProUser_${user.uid}`);
+        if (storedUserProfile) {
+          setUserProfile(JSON.parse(storedUserProfile));
+        } else {
+          const newUserProfile: UserProfile = {
+            id: user.uid,
+            phoneNumber: user.phoneNumber || undefined,
+            email: user.email || undefined,
+            ...initialMockUserProfileData,
+            name: user.displayName || user.phoneNumber || 'New User',
+          };
+          setUserProfile(newUserProfile);
+          localStorage.setItem(`vitaLogProUser_${user.uid}`, JSON.stringify(newUserProfile));
+        }
+      } else {
+        setFirebaseUser(null);
+        setUserProfile(null);
+      }
+      setIsLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  const login = async (phone: string, otp: string): Promise<boolean> => {
+  const loginWithPhoneNumber = async (phoneNumber: string, appVerifier: RecaptchaVerifier): Promise<ConfirmationResult | null> => {
     setIsLoading(true);
-    return new Promise(resolve => {
-      setTimeout(() => {
-        // Simplified OTP check for "+11234567890" and "123456"
-        if (phone === '+11234567890' && otp === '123456') {
-          setIsAuthenticated(true);
-          const currentUser = initialMockUser; // Use initial on new login
-          setUser(currentUser);
-          localStorage.setItem('vitaLogProAuth', 'true');
-          localStorage.setItem('vitaLogProUser', JSON.stringify(currentUser));
-          router.push('/'); // Navigate to dashboard
-          resolve(true);
-        } else {
-          resolve(false);
-        }
-        setIsLoading(false);
-      }, 1000);
-    });
+    try {
+      // Use signInWithPhoneNumber from firebase/auth directly
+      const confirmationResult = await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
+      setIsLoading(false);
+      return confirmationResult;
+    } catch (error) {
+      console.error("Error sending OTP:", error);
+      setIsLoading(false);
+      throw error; 
+    }
   };
 
-  const logout = () => {
-    setIsAuthenticated(false);
-    setUser(null);
-    localStorage.removeItem('vitaLogProAuth');
-    localStorage.removeItem('vitaLogProUser');
-    router.push('/auth/login');
+  const confirmOtp = async (confirmationResult: ConfirmationResult, otp: string): Promise<boolean> => {
+    setIsLoading(true);
+    try {
+      await confirmationResult.confirm(otp);
+      setIsLoading(false);
+      return true;
+    } catch (error) {
+      console.error("Error confirming OTP:", error);
+      setIsLoading(false);
+      throw error;
+    }
+  };
+
+
+  const logout = async () => {
+    setIsLoading(true);
+    try {
+      await signOut(auth);
+      router.push('/auth/login');
+    } catch (error) {
+      console.error("Logout error:", error);
+    } finally {
+      setIsLoading(false);
+    }
   };
   
-  const updateUserProfile = (updatedProfileData: Partial<UserProfile>) => {
-    setUser(prevUser => {
-      if (!prevUser) return null;
-      const newUser = { ...prevUser, ...updatedProfileData };
-      localStorage.setItem('vitaLogProUser', JSON.stringify(newUser));
-      return newUser;
+  const updateUserProfileState = (updatedProfileData: Partial<UserProfile>) => {
+    setUserProfile(prevUserProfile => {
+      if (!prevUserProfile || !firebaseUser) return null;
+      const newUserProfile = { ...prevUserProfile, ...updatedProfileData };
+      localStorage.setItem(`vitaLogProUser_${firebaseUser.uid}`, JSON.stringify(newUserProfile));
+      return newUserProfile;
     });
   };
 
   const addHealthGoal = (goal: Omit<HealthGoal, 'id'>) => {
-    setUser(prevUser => {
-      if (!prevUser) return null;
+    setUserProfile(prevUserProfile => {
+      if (!prevUserProfile || !firebaseUser) return null;
       const newGoal = { ...goal, id: `goal${Date.now()}` };
-      const updatedGoals = [...prevUser.healthGoals, newGoal];
-      const newUser = { ...prevUser, healthGoals: updatedGoals };
-      localStorage.setItem('vitaLogProUser', JSON.stringify(newUser));
-      return newUser;
+      const updatedGoals = [...prevUserProfile.healthGoals, newGoal];
+      const newUserProfile = { ...prevUserProfile, healthGoals: updatedGoals };
+      localStorage.setItem(`vitaLogProUser_${firebaseUser.uid}`, JSON.stringify(newUserProfile));
+      return newUserProfile;
     });
   };
   
   const updateHealthGoal = (updatedGoal: HealthGoal) => {
-    setUser(prevUser => {
-      if (!prevUser) return null;
-      const updatedGoals = prevUser.healthGoals.map(g => g.id === updatedGoal.id ? updatedGoal : g);
-      const newUser = { ...prevUser, healthGoals: updatedGoals };
-      localStorage.setItem('vitaLogProUser', JSON.stringify(newUser));
-      return newUser;
+    setUserProfile(prevUserProfile => {
+      if (!prevUserProfile || !firebaseUser) return null;
+      const updatedGoals = prevUserProfile.healthGoals.map(g => g.id === updatedGoal.id ? updatedGoal : g);
+      const newUserProfile = { ...prevUserProfile, healthGoals: updatedGoals };
+      localStorage.setItem(`vitaLogProUser_${firebaseUser.uid}`, JSON.stringify(newUserProfile));
+      return newUserProfile;
     });
   };
 
   const updateAiPreferences = (preferences: Partial<AiFeedbackPreferences>) => {
-    setUser(prevUser => {
-      if(!prevUser) return null;
-      const newPreferences = { ...prevUser.aiFeedbackPreferences, ...preferences };
-      const newUser = { ...prevUser, aiFeedbackPreferences: newPreferences };
-      localStorage.setItem('vitaLogProUser', JSON.stringify(newUser));
-      return newUser;
+    setUserProfile(prevUserProfile => {
+      if(!prevUserProfile || !firebaseUser) return null;
+      const newPreferences = { ...(prevUserProfile.aiFeedbackPreferences || initialMockUserProfileData.aiFeedbackPreferences), ...preferences };
+      const newUserProfile = { ...prevUserProfile, aiFeedbackPreferences: newPreferences };
+      localStorage.setItem(`vitaLogProUser_${firebaseUser.uid}`, JSON.stringify(newUserProfile));
+      return newUserProfile;
     });
   };
 
-
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, login, logout, isLoading, updateUserProfile, addHealthGoal, updateHealthGoal, updateAiPreferences }}>
+    <AuthContext.Provider value={{ 
+      isAuthenticated: !!firebaseUser, 
+      firebaseUser, 
+      userProfile, 
+      loginWithPhoneNumber, 
+      confirmOtp,
+      logout, 
+      isLoading, 
+      updateUserProfileState, 
+      addHealthGoal, 
+      updateHealthGoal, 
+      updateAiPreferences 
+    }}>
       {children}
     </AuthContext.Provider>
   );
