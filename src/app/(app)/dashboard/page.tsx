@@ -3,7 +3,7 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { TrendingUp, Activity, FilePlus, MessageSquareWarning, ShieldCheck, Zap, ListChecks, Lightbulb, BarChartHorizontalBig, Download } from 'lucide-react';
+import { TrendingUp, Activity, FilePlus, MessageSquareWarning, ShieldCheck, Zap, ListChecks, Lightbulb, BarChartHorizontalBig, Download, CalendarCheck } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
@@ -44,6 +44,7 @@ export default function DashboardPage() {
   
   const activeGoalsCount = user.healthGoals.filter(g => g.status === 'in_progress').length;
   const prescriptionsCount = 0; // Placeholder
+  const upcomingAppointmentsCount = 0; // Placeholder for new card
 
   return (
     <div className="container mx-auto py-2 px-0 md:px-4">
@@ -54,9 +55,9 @@ export default function DashboardPage() {
         <p className="text-muted-foreground">Let's take charge of your well-being today.</p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {/* Proactive Nudge Card */}
-        <Card className="col-span-1 md:col-span-2 lg:col-span-1 xl:col-span-1 bg-gradient-to-br from-primary/10 to-accent/10 border-primary/20 shadow-lg hover:shadow-xl transition-shadow duration-300">
+      {/* Proactive Nudge Card Section */}
+      <div className="mb-6">
+        <Card className="bg-gradient-to-br from-primary/10 to-accent/10 border-primary/20 shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-105">
           <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
             <div className="space-y-1">
               <CardTitle className="text-lg font-semibold text-primary">Today's Focus</CardTitle>
@@ -71,9 +72,11 @@ export default function DashboardPage() {
             <Button variant="ghost" size="sm" className="text-xs text-primary hover:bg-primary/10">Dismiss</Button>
           </CardFooter>
         </Card>
+      </div>
 
-        {/* Key Health Indicators */}
-        <Card className="shadow-md hover:shadow-lg transition-shadow duration-300">
+      {/* Key Health Indicators Section */}
+      <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Active Health Goals</CardTitle>
             <ListChecks className="h-5 w-5 text-accent" />
@@ -84,7 +87,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="shadow-md hover:shadow-lg transition-shadow duration-300">
+        <Card className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Managed Prescriptions</CardTitle>
             <FilePlus className="h-5 w-5 text-primary" />
@@ -95,7 +98,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
         
-        <Card className="shadow-md hover:shadow-lg transition-shadow duration-300">
+        <Card className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Potential Interactions</CardTitle>
             <MessageSquareWarning className="h-5 w-5 text-destructive" />
@@ -103,6 +106,17 @@ export default function DashboardPage() {
           <CardContent>
             <div className="text-2xl font-bold text-destructive">0</div>
             <p className="text-xs text-muted-foreground">No interactions found yet.</p>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Upcoming Appointments</CardTitle>
+            <CalendarCheck className="h-5 w-5 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-primary">{upcomingAppointmentsCount}</div>
+            <p className="text-xs text-muted-foreground">No appointments scheduled.</p>
           </CardContent>
         </Card>
       </div>
@@ -186,7 +200,7 @@ export default function DashboardPage() {
       {/* Empty State Example (if no data) */}
       {activeGoalsCount === 0 && prescriptionsCount === 0 && (
          <section className="mt-12 text-center">
-            <Card className="max-w-lg mx-auto p-8 bg-background shadow-lg">
+            <Card className="max-w-lg mx-auto p-8 bg-card shadow-lg">
                 <BarChartHorizontalBig data-ai-hint="health chart" className="h-16 w-16 text-primary mx-auto mb-4" />
                 <h2 className="text-2xl font-semibold mb-2 text-foreground">Welcome to VitaLog Pro!</h2>
                 <p className="text-muted-foreground mb-6">
@@ -206,3 +220,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+
