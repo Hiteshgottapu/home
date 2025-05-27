@@ -2,9 +2,9 @@
 "use client";
 
 import type { Prescription } from '@/types';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription as ShadCardDescription, DialogFooter, DialogClose } from "@/components/ui/dialog"; // Aliased DialogDescription
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription as ShadCardDescription, DialogClose } from "@/components/ui/dialog"; // Aliased DialogDescription
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"; // Removed CardFooter as it's not directly used here for modal items
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import Image from 'next/image';
 import { FileText, CalendarDays, Pill, Thermometer, Repeat, Percent, User, Stethoscope, X, Trash2, AlertTriangle } from 'lucide-react';
@@ -83,8 +83,8 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
     }
   };
   
-  if (!isOpen && currentPrescriptions.length === 0) { // Only render empty state if modal is open and no prescriptions
-      return null; // Or a more sophisticated empty state component if preferred when modal is supposed to be open
+  if (!isOpen && currentPrescriptions.length === 0 && !prescriptionToDelete) { 
+      return null; 
   }
 
 
@@ -101,7 +101,7 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
           </ShadCardDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-grow px-6 py-2"> {/* Adjusted padding here */}
+        <ScrollArea className="flex-grow px-6 py-2">
           {currentPrescriptions.length === 0 ? (
              <div className="flex flex-col items-center justify-center h-full text-center py-10">
                 <FileText className="h-16 w-16 text-muted-foreground mx-auto mb-4" data-ai-hint="document icon" />
@@ -113,7 +113,7 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
                 </Button>
             </div>
           ) : (
-            <div className="space-y-6 py-4"> {/* Added py-4 for spacing within scroll area */}
+            <div className="space-y-6 py-4">
               {currentPrescriptions.map((prescription, idx) => (
                 <Card key={prescription.id || idx} className="overflow-hidden shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-[1.02] group relative">
                   <AlertDialog open={!!prescriptionToDelete && prescriptionToDelete.id === prescription.id} onOpenChange={(open) => !open && setPrescriptionToDelete(null)}>
@@ -214,7 +214,7 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
                           <p className="text-sm text-muted-foreground italic pt-2">No medications extracted for this item.</p>
                         )}
                       </CardContent>
-                       <div className="p-0 pt-4 mt-auto"> {/* Replaced CardFooter with a div for same effect */}
+                       <div className="p-0 pt-4 mt-auto">
                           <Link href={`/insights#${prescription.id}`} passHref legacyBehavior>
                              <Button variant="outline" size="sm" className="w-full" onClick={() => { onClose(); setPrescriptionToDelete(null); }}>
                                View Full Details in Insights Hub
@@ -228,17 +228,7 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
             </div>
           )}
         </ScrollArea>
-
-        <DialogFooter className="p-6 border-t border-border sticky bottom-0 bg-card z-10 flex-shrink-0">
-          <DialogClose asChild>
-            <Button variant="outline" className="w-full sm:w-auto sm:ml-auto" onClick={() => { onClose(); setPrescriptionToDelete(null); }}> {/* Added sm:ml-auto */}
-              <X className="mr-2 h-4 w-4" /> Close
-            </Button>
-          </DialogClose>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
-
-    
