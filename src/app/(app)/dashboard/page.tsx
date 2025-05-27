@@ -1,3 +1,4 @@
+
 "use client";
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -31,7 +32,7 @@ const mockPieData = [
 
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { userProfile: user } = useAuth();
 
   if (!user) {
     return (

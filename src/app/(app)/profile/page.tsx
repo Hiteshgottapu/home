@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useState }_ from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -16,15 +17,12 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 
 
 export default function ProfilePage() {
-  const { user, updateUserProfile, addHealthGoal, updateHealthGoal: authUpdateHealthGoal, updateAiPreferences, logout } = useAuth();
+  const { userProfile: user, updateUserProfileState: updateUserProfile, addHealthGoal, updateHealthGoal: authUpdateHealthGoal, updateAiPreferences, logout } = useAuth();
   const { toast } = useToast();
 
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<HealthGoal | null>(null);
   
-  // Local form state for user details (if direct editing is desired)
-  // For simplicity, we'll assume these are updated via a dedicated "Edit Profile" modal/form not built here.
-  // We will directly use user context data for display.
   // Editable AI preferences:
   const [currentAiPreferences, setCurrentAiPreferences] = useState<AiFeedbackPreferences | undefined>(user?.aiFeedbackPreferences);
 
@@ -50,21 +48,27 @@ export default function ProfilePage() {
   };
 
   const handleDeleteGoal = (goalId: string) => {
-    // This would typically update the user's healthGoals array in the AuthContext or backend
-    // For mock, let's filter it out from user.healthGoals
     const updatedGoals = user.healthGoals.filter(g => g.id !== goalId);
-    updateUserProfile({ healthGoals: updatedGoals }); // Assuming updateUserProfile can handle partial updates like this
+    updateUserProfile({ healthGoals: updatedGoals }); 
     toast({ title: "Goal Deleted", variant: "destructive" });
   };
   
   const handleAiPreferenceChange = (key: keyof AiFeedbackPreferences, value: string) => {
-    if (currentAiPreferences) {
+    if (user && currentAiPreferences) { // Ensure user is defined
         const newPrefs = {...currentAiPreferences, [key]: value};
         setCurrentAiPreferences(newPrefs);
-        updateAiPreferences(newPrefs); // Update in context/localStorage
+        updateAiPreferences(newPrefs); 
         toast({ title: "AI Preferences Updated" });
     }
   };
+  
+  // Update local AI preferences state if user context changes
+  useEffect(() => {
+    if (user?.aiFeedbackPreferences) {
+      setCurrentAiPreferences(user.aiFeedbackPreferences);
+    }
+  }, [user?.aiFeedbackPreferences]);
+
 
   return (
     <div className="container mx-auto py-2 px-0 md:px-4 space-y-8">
