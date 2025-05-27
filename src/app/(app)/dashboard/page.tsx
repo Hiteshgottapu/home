@@ -1,16 +1,17 @@
 
 "use client";
-import { useState } from 'react'; // Added for modal state
+import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { TrendingUp, Activity, FilePlus, MessageSquareWarning, ShieldCheck, Zap, ListChecks, Lightbulb, BarChartHorizontalBig, Download, CalendarCheck, Target, Timer, Eye } from 'lucide-react'; // Added Eye, Target, Timer
+import { TrendingUp, Activity, FilePlus, MessageSquareWarning, ShieldCheck, Zap, ListChecks, Lightbulb, BarChartHorizontalBig, Download, CalendarCheck, Target, Timer, Eye } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
 import { ActiveGoalTaskMenu } from '@/components/dashboard/ActiveGoalTaskMenu';
-import { ManagedPrescriptionsModal } from '@/components/dashboard/ManagedPrescriptionsModal'; // Added import
+import { ManagedPrescriptionsModal } from '@/components/dashboard/ManagedPrescriptionsModal';
+import { InteractionLogModal, type MockAiChatEntry, type MockDoctorNoteEntry } from '@/components/dashboard/InteractionLogModal'; // Added import
 
 const mockChartData = [
   { month: "Jan", tasks: Math.floor(Math.random() * 20) + 5, goals: Math.floor(Math.random() * 5) + 1 },
@@ -32,7 +33,6 @@ const mockPieData = [
   { name: 'Pending', value: 2, fill: 'hsl(var(--muted))' },
 ];
 
-// Mock prescription data for the modal - in a real app, this would come from context or API
 const mockDashboardPrescriptions = [
   {
     id: 'dash_pres_1',
@@ -41,7 +41,7 @@ const mockDashboardPrescriptions = [
     status: 'verified' as const,
     extractedMedications: [{ name: 'Amoxicillin', dosage: '500mg', frequency: 'Twice daily' }],
     ocrConfidence: 0.95,
-    imageUrl: 'https://placehold.co/400x500.png', // Placeholder image
+    imageUrl: 'https://placehold.co/400x500.png',
     patientName: 'Alex Ryder',
     doctor: 'Dr. Emily Carter'
   },
@@ -52,17 +52,28 @@ const mockDashboardPrescriptions = [
     status: 'needs_correction' as const,
     extractedMedications: [{ name: 'Lisinopril', dosage: '10mg', frequency: 'Once daily (Morning)' }, { name: 'Metformin', dosage: '500mg', frequency: 'Twice daily with meals'}],
     ocrConfidence: 0.78,
-    imageUrl: 'https://placehold.co/400x550.png', // Placeholder image
+    imageUrl: 'https://placehold.co/400x550.png',
     patientName: 'Alex Ryder',
     doctor: 'Dr. Ben Zhao'
   },
+];
+
+const mockAiChatLogs: MockAiChatEntry[] = [
+  { id: 'ai_1', timestamp: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(), userQuery: "I've had a persistent cough and mild fever for 3 days.", aiResponse: "Based on your symptoms, potential conditions include a common cold or flu. It's advisable to monitor your symptoms and rest. If they worsen, please consult a doctor." },
+  { id: 'ai_2', timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), userQuery: "What are some good exercises for lower back pain?", aiResponse: "Gentle stretches like pelvic tilts and knee-to-chest stretches can be beneficial. Avoid strenuous activities and consult a physical therapist for a personalized plan." },
+];
+
+const mockDoctorNotes: MockDoctorNoteEntry[] = [
+  { id: 'doc_1', date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), doctorName: "Dr. Emily Carter", note: "Follow-up on blood pressure. Medication seems effective. Advised to continue current dosage and monitor diet. Next check-up in 3 months.", appointmentId: "appt_123" },
+  { id: 'doc_2', date: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(), doctorName: "Dr. Ben Zhao", note: "Discussed results of recent lab tests. Cholesterol levels slightly elevated. Recommended dietary changes and re-test in 6 weeks.", appointmentId: "appt_456" },
 ];
 
 
 export default function DashboardPage() {
   const { userProfile: user } = useAuth();
   const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false);
-  const [isPrescriptionsModalOpen, setIsPrescriptionsModalOpen] = useState(false); // State for prescriptions modal
+  const [isPrescriptionsModalOpen, setIsPrescriptionsModalOpen] = useState(false);
+  const [isInteractionLogModalOpen, setIsInteractionLogModalOpen] = useState(false); // State for new modal
 
   if (!user) {
     return (
@@ -73,8 +84,11 @@ export default function DashboardPage() {
   }
   
   const activeGoalsCount = user.healthGoals.filter(g => g.status === 'in_progress').length;
-  const prescriptionsCount = mockDashboardPrescriptions.length; // Updated to use mock data length
-  const upcomingAppointmentsCount = 0; // Placeholder for new card
+  const prescriptionsCount = mockDashboardPrescriptions.length;
+  const upcomingAppointmentsCount = 0; // Placeholder
+
+  // Placeholder for actual potential interactions count
+  const potentialInteractionsCount = 0; 
 
   return (
     <div className="container mx-auto py-2 px-0 md:px-4">
@@ -87,7 +101,7 @@ export default function DashboardPage() {
 
       {/* Proactive Nudge Card Section */}
       <div className="mb-6">
-        <Card className="bg-gradient-to-br from-primary/10 to-accent/10 border-primary/20 shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-[1.02]"> {/* Adjusted hover scale */}
+        <Card className="bg-gradient-to-br from-primary/10 to-accent/10 border-primary/20 shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-[1.02]">
           <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
             <div className="space-y-1">
               <CardTitle className="text-lg font-semibold text-primary">Today's Focus</CardTitle>
@@ -140,14 +154,21 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
         
-        <Card className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105">
+        <Card 
+          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 cursor-pointer"
+          onClick={() => setIsInteractionLogModalOpen(true)} // Opens the new modal
+          role="button"
+          tabIndex={0}
+          aria-label="View interaction log"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Potential Interactions</CardTitle>
+            <CardTitle className="text-sm font-medium">Interaction Log</CardTitle>
             <MessageSquareWarning className="h-5 w-5 text-destructive" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-destructive">0</div>
-            <p className="text-xs text-muted-foreground">No interactions found yet.</p>
+            {/* The count here is a placeholder. Actual logic would determine this. */}
+            <div className="text-2xl font-bold text-destructive">{mockAiChatLogs.length + mockDoctorNotes.length}</div>
+            <p className="text-xs text-muted-foreground">View AI chats & doctor notes.</p>
           </CardContent>
         </Card>
 
@@ -264,6 +285,12 @@ export default function DashboardPage() {
         isOpen={isPrescriptionsModalOpen} 
         onClose={() => setIsPrescriptionsModalOpen(false)}
         prescriptions={mockDashboardPrescriptions} 
+      />
+      <InteractionLogModal
+        isOpen={isInteractionLogModalOpen}
+        onClose={() => setIsInteractionLogModalOpen(false)}
+        aiChatLogs={mockAiChatLogs}
+        doctorNotes={mockDoctorNotes}
       />
     </div>
   );
