@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm, Controller, SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -14,8 +14,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar as CalendarIcon, Clock, User, Stethoscope, MessageCircle, CheckCircle, ChevronLeft, ChevronRight, Loader2, Gift, Sparkles } from 'lucide-react';
-import { format, addDays, setHours, setMinutes, isPast, startOfDay } from 'date-fns';
+import { Calendar as CalendarIcon, Clock, User, Stethoscope, MessageCircle, CheckCircle, ChevronLeft, ChevronRight, Loader2, Gift, Sparkles, Briefcase } from 'lucide-react';
+import { format, addDays, setHours, setMinutes, isPast, startOfDay, isToday as dateFnsIsToday } from 'date-fns';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -24,72 +24,97 @@ interface AppointmentBookingModalProps {
   isOpen: boolean;
   onClose: () => void;
   isFirstAppointmentFree?: boolean;
+  onBookingSuccess: () => void;
 }
 
 // Mock Data
 const mockServices = [
-  { id: 's1', name: 'General Check-up', duration: 30 },
-  { id: 's2', name: 'Specialist Consultation', duration: 45 },
-  { id: 's3', name: 'Follow-up Visit', duration: 20 },
-  { id: 's4', name: 'Vaccination', duration: 15 },
+  { id: 's1', name: 'General Check-up', duration: 30, relatedSpecialties: ['general', 'family_medicine'] },
+  { id: 's2', name: 'Specialist Consultation', duration: 45, relatedSpecialties: ['cardiology', 'dermatology', 'pediatrics', 'neurology'] },
+  { id: 's3', name: 'Follow-up Visit', duration: 20, relatedSpecialties: ['general', 'cardiology', 'dermatology', 'pediatrics', 'neurology', 'family_medicine'] },
+  { id: 's4', name: 'Vaccination', duration: 15, relatedSpecialties: ['general', 'pediatrics', 'family_medicine'] },
+  { id: 's5', name: 'Mental Health Counseling', duration: 50, relatedSpecialties: ['psychiatry', 'psychology'] },
+  { id: 's6', name: 'Physical Therapy Session', duration: 60, relatedSpecialties: ['physical_therapy'] },
 ];
 
 const mockDoctors = [
-  { id: 'd1', name: 'Dr. Emily Carter', specialty: 'General Physician' },
-  { id: 'd2', name: 'Dr. Ben Zhao', specialty: 'Cardiologist' },
-  { id: 'd3', name: 'Dr. Olivia Chen', specialty: 'Pediatrician' },
-  { id: 'd4', name: 'Dr. Samuel Green', specialty: 'Dermatologist' },
+  { id: 'd1', name: 'Dr. Emily Carter', specialty: 'general' },
+  { id: 'd2', name: 'Dr. Ben Zhao', specialty: 'cardiology' },
+  { id: 'd3', name: 'Dr. Olivia Chen', specialty: 'pediatrics' },
+  { id: 'd4', name: 'Dr. Samuel Green', specialty: 'dermatology' },
+  { id: 'd5', name: 'Dr. Aisha Khan', specialty: 'neurology' },
+  { id: 'd6', name: 'Dr. Carlos Rivera', specialty: 'family_medicine' },
+  { id: 'd7', name: 'Dr. Sofia Petrova', specialty: 'psychiatry' },
+  { id: 'd8', name: 'Mr. David Lee', specialty: 'physical_therapy' },
 ];
 
 // Schemas for multi-step form
 const step1Schema = z.object({
   serviceId: z.string().min(1, "Please select a service."),
-  doctorId: z.string().min(1, "Please select a doctor."),
 });
 type Step1Values = z.infer<typeof step1Schema>;
 
 const step2Schema = z.object({
+  doctorId: z.string().min(1, "Please select a doctor."),
   appointmentDate: z.date({ required_error: "Please select a date." }),
-  appointmentTime: z.string().min(1, "Please select a time slot."),
 });
 type Step2Values = z.infer<typeof step2Schema>;
 
 const step3Schema = z.object({
-  notes: z.string().max(300, "Notes cannot exceed 300 characters.").optional(),
+  appointmentTime: z.string().min(1, "Please select a time slot."),
 });
 type Step3Values = z.infer<typeof step3Schema>;
 
-type CombinedFormValues = Step1Values & Step2Values & Step3Values;
+const step4Schema = z.object({
+  notes: z.string().max(300, "Notes cannot exceed 300 characters.").optional(),
+});
+type Step4Values = z.infer<typeof step4Schema>;
 
-export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFree = false }: AppointmentBookingModalProps) {
+type CombinedFormValues = Step1Values & Step2Values & Step3Values & Step4Values;
+
+export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFree = false, onBookingSuccess }: AppointmentBookingModalProps) {
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [bookingComplete, setBookingComplete] = useState(false);
   const [availableTimeSlots, setAvailableTimeSlots] = useState<string[]>([]);
+  const [filteredDoctors, setFilteredDoctors] = useState(mockDoctors);
 
   const { userProfile } = useAuth();
   const { toast } = useToast();
 
-  const { control, handleSubmit, watch, setValue, reset, formState: { errors, isValid } } = useForm<CombinedFormValues>({
+  const { control, handleSubmit, watch, setValue, reset, formState: { errors, isValid }, trigger } = useForm<CombinedFormValues>({
     resolver: async (data, context, options) => {
       let currentValidationSchema;
-      if (currentStep === 1) {
-        currentValidationSchema = step1Schema;
-      } else if (currentStep === 2) {
-        currentValidationSchema = step1Schema.merge(step2Schema); 
-      } else { 
-        currentValidationSchema = step1Schema.merge(step2Schema).merge(step3Schema); 
-      }
+      if (currentStep === 1) currentValidationSchema = step1Schema;
+      else if (currentStep === 2) currentValidationSchema = step1Schema.merge(step2Schema);
+      else if (currentStep === 3) currentValidationSchema = step1Schema.merge(step2Schema).merge(step3Schema);
+      else currentValidationSchema = step1Schema.merge(step2Schema).merge(step3Schema).merge(step4Schema);
       return zodResolver(currentValidationSchema)(data, context, options);
     },
-    mode: 'onChange', 
+    mode: 'onChange',
   });
 
   const selectedDate = watch('appointmentDate');
   const selectedServiceId = watch('serviceId');
+  const selectedDoctorId = watch('doctorId');
 
   useEffect(() => {
-    if (selectedDate && selectedServiceId) {
+    if (selectedServiceId) {
+      const service = mockServices.find(s => s.id === selectedServiceId);
+      if (service) {
+        setFilteredDoctors(mockDoctors.filter(doc => service.relatedSpecialties.includes(doc.specialty)));
+      }
+      setValue('doctorId', ''); // Reset doctor if service changes
+      setValue('appointmentDate', undefined); // Reset date if service changes
+      setValue('appointmentTime', ''); // Reset time if service changes
+    } else {
+      setFilteredDoctors(mockDoctors); // Show all if no service
+    }
+  }, [selectedServiceId, setValue]);
+
+
+  useEffect(() => {
+    if (selectedDate && selectedServiceId && selectedDoctorId) {
       const service = mockServices.find(s => s.id === selectedServiceId);
       if (!service) return;
 
@@ -97,56 +122,61 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
       const today = startOfDay(new Date());
       const currentSelectedDate = startOfDay(selectedDate);
 
-      if (currentSelectedDate < today) {
+      if (currentSelectedDate < today && !dateFnsIsToday(currentSelectedDate)) {
         setAvailableTimeSlots([]);
-        setValue('appointmentTime', ''); 
+        setValue('appointmentTime', '');
         return;
       }
 
-      const openingTime = setMinutes(setHours(selectedDate, 9), 0); 
-      const closingTime = setMinutes(setHours(selectedDate, 17), 0); 
+      const openingTime = setMinutes(setHours(currentSelectedDate, 9), 0);
+      const closingTime = setMinutes(setHours(currentSelectedDate, 17), 0);
       let currentTime = openingTime;
 
       while (currentTime < closingTime) {
         const slotEnd = new Date(currentTime.getTime() + service.duration * 60000);
-        if (slotEnd <= closingTime && !isPast(currentTime)) { 
+        // For today, only show future slots
+        if (slotEnd <= closingTime && (dateFnsIsToday(currentSelectedDate) ? currentTime > new Date() : true)) {
           slots.push(format(currentTime, 'HH:mm'));
         }
-        currentTime = new Date(currentTime.getTime() + service.duration * 60000); 
+        currentTime = new Date(currentTime.getTime() + Math.max(15, service.duration) * 60000); // Ensure slot progression
       }
       setAvailableTimeSlots(slots);
     } else {
       setAvailableTimeSlots([]);
     }
-  }, [selectedDate, selectedServiceId, setValue]);
-  
+  }, [selectedDate, selectedServiceId, selectedDoctorId, setValue]);
+
 
   const handleNextStep = async () => {
-    const result = await handleSubmit(() => { 
-        setCurrentStep(prev => Math.min(prev + 1, 3)); 
-    })();
+    let fieldsToValidate: (keyof CombinedFormValues)[] = [];
+    if (currentStep === 1) fieldsToValidate = ['serviceId'];
+    if (currentStep === 2) fieldsToValidate = ['serviceId', 'doctorId', 'appointmentDate'];
+    if (currentStep === 3) fieldsToValidate = ['serviceId', 'doctorId', 'appointmentDate', 'appointmentTime'];
+    
+    const result = await trigger(fieldsToValidate);
+    if (result) {
+      setCurrentStep(prev => Math.min(prev + 1, 4));
+    }
   };
 
   const handlePreviousStep = () => {
     setCurrentStep(prev => Math.max(prev - 1, 1));
   };
 
-  const onSubmit = async (data: CombinedFormValues) => {
+  const onSubmitForm: SubmitHandler<CombinedFormValues> = async (data) => {
     setIsLoading(true);
     await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    console.log("Submitting Appointment Data:", data);
 
     if (!data.appointmentDate || !(data.appointmentDate instanceof Date) || isNaN(data.appointmentDate.getTime())) {
-        console.error("Invalid or missing appointmentDate in onSubmit before formatting:", data.appointmentDate);
-        toast({
-            title: "Booking Error",
-            description: "The selected appointment date is invalid. Please go back and select a valid date.",
-            variant: "destructive",
-            duration: 7000, 
-        });
-        setIsLoading(false);
-        return; 
+      console.error("Invalid or missing appointmentDate in onSubmit before formatting:", data.appointmentDate);
+      toast({
+        title: "Booking Error",
+        description: "The selected appointment date is invalid. Please go back and select a valid date.",
+        variant: "destructive",
+        duration: 7000,
+      });
+      setIsLoading(false);
+      return;
     }
 
     toast({
@@ -157,16 +187,18 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
     });
     setIsLoading(false);
     setBookingComplete(true);
+    onBookingSuccess();
   };
 
   const handleCloseDialog = () => {
     reset();
     setCurrentStep(1);
     setBookingComplete(false);
+    setFilteredDoctors(mockDoctors);
     onClose();
   };
 
-  const progressValue = (currentStep / 3) * 100;
+  const progressValue = (currentStep / 4) * 100;
 
   if (!isOpen) return null;
 
@@ -186,12 +218,12 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
       </Dialog>
     );
   }
-  
+
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleCloseDialog()}>
-      <DialogContent className="sm:max-w-xl md:max-w-2xl lg:max-w-3xl max-h-[90vh] flex flex-col p-0 overflow-hidden shadow-2xl border-border">
-        <DialogHeader className="p-6 border-b bg-gradient-to-r from-muted/40 to-muted/20">
+      <DialogContent className="sm:max-w-xl md:max-w-2xl lg:max-w-3xl max-h-[90vh] flex flex-col p-0 overflow-hidden shadow-2xl border-border bg-card">
+        <DialogHeader className="p-6 border-b border-border bg-card">
           <DialogTitle className="text-2xl font-semibold text-foreground flex items-center gap-2">
             <CalendarIcon className="h-7 w-7 text-primary"/>
             Book an Appointment
@@ -200,7 +232,7 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
         </DialogHeader>
 
         {isFirstAppointmentFree && currentStep === 1 && (
-          <div className="mx-6 mt-4 p-3 bg-gradient-to-r from-green-500 via-teal-500 to-blue-600 text-white rounded-lg shadow-lg flex items-center gap-3 animate-fadeIn">
+          <div className="mx-6 mt-4 p-3 bg-gradient-to-r from-green-500 via-teal-500 to-blue-600 text-white rounded-lg shadow-lg flex items-center gap-3 animate-subtle-pulse">
             <Gift size={24} className="flex-shrink-0" />
             <div>
               <p className="font-bold text-base">Your First Consultation is on Us!</p>
@@ -211,23 +243,24 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
         )}
 
         <div className="px-6 pt-2 pb-4">
-            <Progress value={progressValue} className="w-full h-2.5 rounded-full bg-muted [&>div]:bg-gradient-to-r [&>div]:from-primary [&>div]:to-accent [&>div]:transition-all [&>div]:duration-500" />
-            <p className="text-xs text-muted-foreground mt-1.5 text-right font-medium">Step {currentStep} of 3</p>
+          <Progress value={progressValue} className="w-full h-2.5 rounded-full bg-muted [&>div]:bg-gradient-to-r [&>div]:from-primary [&>div]:to-accent [&>div]:transition-all [&>div]:duration-500" />
+          <p className="text-xs text-muted-foreground mt-1.5 text-right font-medium">Step {currentStep} of 4</p>
         </div>
-        
-        <form onSubmit={handleSubmit(onSubmit)} className="flex-grow overflow-y-auto px-6 pb-6 space-y-6">
+
+        <form onSubmit={handleSubmit(onSubmitForm)} className="flex-grow overflow-y-auto px-6 pb-6 space-y-6">
           {currentStep === 1 && (
             <div className="space-y-6 animate-fadeIn">
-              <Card className="shadow-lg border-border hover:shadow-xl transition-shadow duration-300">
+              <Card className="shadow-lg border border-border hover:shadow-xl hover:border-primary/40 transition-all duration-300">
                 <CardHeader>
-                  <CardTitle className="text-xl flex items-center gap-2"><Stethoscope className="text-primary"/>Select Service</CardTitle>
+                  <CardTitle className="text-xl flex items-center gap-2"><Briefcase className="text-primary"/>Select Service</CardTitle>
+                   <CardDescription>Choose the type of consultation you need.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <Controller
                     name="serviceId"
                     control={control}
                     render={({ field }) => (
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value || ''}>
                         <SelectTrigger className="w-full text-base py-3 rounded-md focus:ring-2 focus:ring-primary/80">
                           <SelectValue placeholder="Choose a service..." />
                         </SelectTrigger>
@@ -244,109 +277,118 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                   {errors.serviceId && <p className="text-sm text-destructive mt-1.5">{errors.serviceId.message}</p>}
                 </CardContent>
               </Card>
-
-              <Card className="shadow-lg border-border hover:shadow-xl transition-shadow duration-300">
-                <CardHeader>
-                  <CardTitle className="text-xl flex items-center gap-2"><User className="text-primary"/>Select Doctor</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Controller
-                    name="doctorId"
-                    control={control}
-                    render={({ field }) => (
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <SelectTrigger className="w-full text-base py-3 rounded-md focus:ring-2 focus:ring-primary/80">
-                          <SelectValue placeholder="Choose a doctor..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {mockDoctors.map(doc => (
-                            <SelectItem key={doc.id} value={doc.id} className="text-base py-2.5">
-                              {doc.name} - <span className="text-sm text-muted-foreground">{doc.specialty}</span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                  {errors.doctorId && <p className="text-sm text-destructive mt-1.5">{errors.doctorId.message}</p>}
-                </CardContent>
-              </Card>
             </div>
           )}
 
           {currentStep === 2 && (
             <div className="space-y-6 animate-fadeIn">
-              <Card className="shadow-lg border-border hover:shadow-xl transition-shadow duration-300">
+               <Card className="shadow-lg border border-border hover:shadow-xl hover:border-primary/40 transition-all duration-300">
                 <CardHeader>
-                    <CardTitle className="text-xl flex items-center gap-2"><CalendarIcon className="text-primary"/>Select Date</CardTitle>
-                </CardHeader>
-                <CardContent className="flex justify-center">
-                    <Controller
-                        name="appointmentDate"
-                        control={control}
-                        render={({ field }) => (
-                            <Calendar
-                                mode="single"
-                                selected={field.value}
-                                onSelect={(date) => {
-                                    field.onChange(date);
-                                    setValue('appointmentTime', ''); 
-                                }}
-                                disabled={(date) => isPast(date) && !isToday(date)} 
-                                className="rounded-md border-2 border-border shadow-inner bg-background/30"
-                                initialFocus
-                            />
-                        )}
-                    />
-                </CardContent>
-                 {errors.appointmentDate && <p className="px-6 pb-2 text-sm text-destructive">{errors.appointmentDate.message}</p>}
-              </Card>
-              
-              <Card className="shadow-lg border-border hover:shadow-xl transition-shadow duration-300">
-                <CardHeader>
-                    <CardTitle className="text-xl flex items-center gap-2"><Clock className="text-primary"/>Select Time Slot</CardTitle>
+                  <CardTitle className="text-xl flex items-center gap-2"><User className="text-primary"/>Select Doctor</CardTitle>
+                  <CardDescription>Choose a specialist for your selected service.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    {selectedDate ? (
-                         availableTimeSlots.length > 0 ? (
-                            <Controller
-                                name="appointmentTime"
-                                control={control}
-                                render={({ field }) => (
-                                <RadioGroup
-                                    onValueChange={field.onChange}
-                                    defaultValue={field.value}
-                                    className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3"
-                                >
-                                    {availableTimeSlots.map(slot => (
-                                    <div key={slot} className="flex items-center">
-                                        <RadioGroupItem value={slot} id={`time-${slot}`} className="peer sr-only" />
-                                        <Label
-                                        htmlFor={`time-${slot}`}
-                                        className="flex flex-col items-center text-base font-medium justify-between rounded-md border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/10 peer-data-[state=checked]:text-primary [&:has([data-state=checked])]:border-primary w-full cursor-pointer transition-all duration-200 ease-in-out transform hover:scale-105"
-                                        >
-                                        {slot}
-                                        </Label>
-                                    </div>
-                                    ))}
-                                </RadioGroup>
-                                )}
-                            />
-                        ) : (
-                            <p className="text-muted-foreground text-center py-4">No available time slots for this date. Please select another date or service.</p>
-                        )
-                    ) : (
-                        <p className="text-muted-foreground text-center py-4">Please select a date first to see available time slots.</p>
+                   {selectedServiceId ? (
+                    filteredDoctors.length > 0 ? (
+                  <Controller
+                    name="doctorId"
+                    control={control}
+                    render={({ field }) => (
+                      <Select onValueChange={field.onChange} value={field.value || ''}>
+                        <SelectTrigger className="w-full text-base py-3 rounded-md focus:ring-2 focus:ring-primary/80">
+                          <SelectValue placeholder="Choose a doctor..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {filteredDoctors.map(doc => (
+                            <SelectItem key={doc.id} value={doc.id} className="text-base py-2.5">
+                              {doc.name} - <span className="text-sm text-muted-foreground capitalize">{doc.specialty.replace('_', ' ')}</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     )}
-                    {errors.appointmentTime && <p className="text-sm text-destructive mt-2">{errors.appointmentTime.message}</p>}
+                  /> ) : ( <p className="text-muted-foreground text-center py-4">No doctors available for the selected service. Please try another service.</p> )
+                  ) : ( <p className="text-muted-foreground text-center py-4">Please select a service first to see available doctors.</p> )}
+                  {errors.doctorId && <p className="text-sm text-destructive mt-1.5">{errors.doctorId.message}</p>}
                 </CardContent>
+              </Card>
+              <Card className="shadow-lg border border-border hover:shadow-xl hover:border-primary/40 transition-all duration-300">
+                <CardHeader>
+                  <CardTitle className="text-xl flex items-center gap-2"><CalendarIcon className="text-primary"/>Select Date</CardTitle>
+                   <CardDescription>Pick a suitable date for your appointment.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex justify-center">
+                  <Controller
+                    name="appointmentDate"
+                    control={control}
+                    render={({ field }) => (
+                      <Calendar
+                        mode="single"
+                        selected={field.value}
+                        onSelect={(date) => {
+                          field.onChange(date);
+                          setValue('appointmentTime', '');
+                        }}
+                        disabled={(date) => isPast(date) && !dateFnsIsToday(date)}
+                        className="rounded-md border-2 border-border shadow-inner bg-background/30"
+                        initialFocus
+                      />
+                    )}
+                  />
+                </CardContent>
+                {errors.appointmentDate && <p className="px-6 pb-2 text-sm text-destructive">{errors.appointmentDate.message}</p>}
               </Card>
             </div>
           )}
-          
+
           {currentStep === 3 && (
+             <div className="space-y-6 animate-fadeIn">
+              <Card className="shadow-lg border border-border hover:shadow-xl hover:border-primary/40 transition-all duration-300">
+                <CardHeader>
+                  <CardTitle className="text-xl flex items-center gap-2"><Clock className="text-primary"/>Select Time Slot</CardTitle>
+                  <CardDescription>Choose an available time for your appointment.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {selectedDate && selectedDoctorId ? (
+                    availableTimeSlots.length > 0 ? (
+                      <Controller
+                        name="appointmentTime"
+                        control={control}
+                        render={({ field }) => (
+                          <RadioGroup
+                            onValueChange={field.onChange}
+                            value={field.value || ''}
+                            className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3"
+                          >
+                            {availableTimeSlots.map(slot => (
+                              <div key={slot} className="flex items-center">
+                                <RadioGroupItem value={slot} id={`time-${slot}`} className="peer sr-only" />
+                                <Label
+                                  htmlFor={`time-${slot}`}
+                                  className="flex flex-col items-center text-base font-medium justify-between rounded-md border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/10 peer-data-[state=checked]:text-primary [&:has([data-state=checked])]:border-primary w-full cursor-pointer transition-all duration-200 ease-in-out transform hover:scale-105"
+                                >
+                                  {slot}
+                                </Label>
+                              </div>
+                            ))}
+                          </RadioGroup>
+                        )}
+                      />
+                    ) : (
+                      <p className="text-muted-foreground text-center py-4">No available time slots for this date/doctor. Please select another date or doctor.</p>
+                    )
+                  ) : (
+                    <p className="text-muted-foreground text-center py-4">Please select a service, doctor, and date first to see available time slots.</p>
+                  )}
+                  {errors.appointmentTime && <p className="text-sm text-destructive mt-2">{errors.appointmentTime.message}</p>}
+                </CardContent>
+              </Card>
+             </div>
+          )}
+
+          {currentStep === 4 && (
             <div className="space-y-6 animate-fadeIn">
-              <Card className="shadow-xl bg-gradient-to-br from-background to-muted/30 border-border">
+              <Card className="shadow-xl border border-primary/20 bg-gradient-to-br from-background to-muted/30">
                 <CardHeader>
                   <CardTitle className="text-xl flex items-center gap-2"><CheckCircle className="text-primary"/>Review Your Appointment</CardTitle>
                   <CardDescription>Please confirm the details below before booking.</CardDescription>
@@ -370,20 +412,20 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                       {watch('appointmentDate') ? format(watch('appointmentDate')!, 'EEEE, MMMM d, yyyy') : ''} at {watch('appointmentTime')}
                     </p>
                   </div>
-                   <div>
+                  <div>
                     <Label htmlFor="notes" className="text-xs text-muted-foreground flex items-center gap-1"><MessageCircle size={14}/>Optional Notes for Doctor</Label>
-                     <Controller
-                        name="notes"
-                        control={control}
-                        render={({ field }) => (
-                            <Textarea 
-                                id="notes" 
-                                placeholder="e.g., Specific concerns, allergies, or if you need an interpreter (Optional)" 
-                                {...field} 
-                                rows={3}
-                                className="mt-1 bg-background/50 rounded-md focus:ring-2 focus:ring-primary/80"
-                            />
-                        )}
+                    <Controller
+                      name="notes"
+                      control={control}
+                      render={({ field }) => (
+                        <Textarea
+                          id="notes"
+                          placeholder="e.g., Specific concerns, allergies, or if you need an interpreter (Optional)"
+                          {...field}
+                          rows={3}
+                          className="mt-1 bg-background/50 rounded-md focus:ring-2 focus:ring-primary/80"
+                        />
+                      )}
                     />
                     {errors.notes && <p className="text-sm text-destructive mt-1">{errors.notes.message}</p>}
                   </div>
@@ -391,35 +433,35 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
               </Card>
             </div>
           )}
-        
 
-          <DialogFooter className="p-6 border-t bg-gradient-to-r from-muted/20 to-muted/40 sticky bottom-0 !mt-auto shadow-top">
+
+          <DialogFooter className="p-6 border-t border-border bg-card sticky bottom-0 !mt-auto shadow-top">
             <div className="flex w-full justify-between items-center">
-              <Button 
-                variant="outline" 
-                type="button" 
-                onClick={handlePreviousStep} 
+              <Button
+                variant="outline"
+                type="button"
+                onClick={handlePreviousStep}
                 disabled={currentStep === 1 || isLoading}
                 className="py-3 px-5 text-base rounded-md shadow-sm hover:shadow-md transition-all duration-300 transform hover:scale-105 hover:bg-muted/70"
               >
                 <ChevronLeft className="mr-1.5 h-5 w-5" /> Previous
               </Button>
-              
-              {currentStep < 3 && (
-                <Button 
-                  type="button" 
-                  onClick={handleNextStep} 
-                  disabled={isLoading || !isValid}
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground py-3 px-5 text-base rounded-md shadow-md hover:shadow-lg transition-all duration-300 transform hover:scale-105 hover:brightness-110"
+
+              {currentStep < 4 && (
+                <Button
+                  type="button"
+                  onClick={handleNextStep}
+                  disabled={isLoading}
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground py-3 px-5 text-base rounded-md shadow-md hover:shadow-lifted transition-all duration-300 transform hover:scale-105"
                 >
                   Next <ChevronRight className="ml-1.5 h-5 w-5" />
                 </Button>
               )}
-              {currentStep === 3 && (
-                <Button 
-                  type="submit" 
-                  disabled={isLoading || !isValid} 
-                  className="bg-green-600 hover:bg-green-700 text-white py-3 px-5 text-base rounded-md shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 hover:brightness-110"
+              {currentStep === 4 && (
+                <Button
+                  type="submit"
+                  disabled={isLoading || !isValid}
+                  className="bg-green-600 hover:bg-green-700 text-white py-3 px-5 text-base rounded-md shadow-lg hover:shadow-lifted-lg transition-all duration-300 transform hover:scale-105"
                 >
                   {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CheckCircle className="mr-2 h-5 w-5" />}
                   Confirm Appointment
@@ -427,17 +469,8 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
               )}
             </div>
           </DialogFooter>
-        </form> 
+        </form>
       </DialogContent>
     </Dialog>
   );
 }
-
-const isToday = (someDate: Date) => {
-  const today = new Date();
-  return someDate.getDate() === today.getDate() &&
-    someDate.getMonth() === today.getMonth() &&
-    someDate.getFullYear() === today.getFullYear();
-};
-
-    

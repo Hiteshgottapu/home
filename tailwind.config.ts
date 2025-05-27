@@ -85,6 +85,10 @@ export default {
         'fadeIn': {
           'from': { opacity: '0', transform: 'translateY(10px)' },
           'to': { opacity: '1', transform: 'translateY(0)' },
+        },
+        'subtle-pulse': {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0.9' },
         }
   		},
   		animation: {
@@ -92,9 +96,12 @@ export default {
   			'accordion-up': 'accordion-up 0.2s ease-out',
         'spin-slow': 'spin-slow 3s linear infinite',
         'fadeIn': 'fadeIn 0.5s ease-out forwards',
+        'subtle-pulse': 'subtle-pulse 2.8s cubic-bezier(0.4, 0, 0.6, 1) infinite',
   		},
       boxShadow: {
         'top': '0 -4px 6px -1px rgb(0 0 0 / 0.1), 0 -2px 4px -2px rgb(0 0 0 / 0.1)',
+        'lifted': '0 10px 15px -3px rgb(0 0 0 / 0.07), 0 4px 6px -4px rgb(0 0 0 / 0.07)', // Softer lift
+        'lifted-lg': '0 15px 25px -5px rgb(0 0 0 / 0.08), 0 8px 10px -6px rgb(0 0 0 / 0.08)', // Softer large lift
       }
   	}
   },
