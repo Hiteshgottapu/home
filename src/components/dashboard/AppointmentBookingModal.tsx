@@ -30,11 +30,12 @@ interface AppointmentBookingModalProps {
 // Mock Data
 const mockServices = [
   { id: 's1', name: 'General Check-up', duration: 30, relatedSpecialties: ['general', 'family_medicine'] },
-  { id: 's2', name: 'Specialist Consultation', duration: 45, relatedSpecialties: ['cardiology', 'dermatology', 'pediatrics', 'neurology'] },
-  { id: 's3', name: 'Follow-up Visit', duration: 20, relatedSpecialties: ['general', 'cardiology', 'dermatology', 'pediatrics', 'neurology', 'family_medicine'] },
-  { id: 's4', name: 'Vaccination', duration: 15, relatedSpecialties: ['general', 'pediatrics', 'family_medicine'] },
-  { id: 's5', name: 'Mental Health Counseling', duration: 50, relatedSpecialties: ['psychiatry', 'psychology'] },
-  { id: 's6', name: 'Physical Therapy Session', duration: 60, relatedSpecialties: ['physical_therapy'] },
+  { id: 's2', name: 'Specialist Consultation (Cardiology)', duration: 45, relatedSpecialties: ['cardiology'] },
+  { id: 's3', name: 'Specialist Consultation (Dermatology)', duration: 45, relatedSpecialties: ['dermatology'] },
+  { id: 's4', name: 'Follow-up Visit', duration: 20, relatedSpecialties: ['general', 'cardiology', 'dermatology', 'pediatrics', 'neurology', 'family_medicine'] },
+  { id: 's5', name: 'Vaccination', duration: 15, relatedSpecialties: ['general', 'pediatrics', 'family_medicine'] },
+  { id: 's6', name: 'Mental Health Counseling', duration: 50, relatedSpecialties: ['psychiatry', 'psychology'] },
+  { id: 's7', name: 'Physical Therapy Session', duration: 60, relatedSpecialties: ['physical_therapy'] },
 ];
 
 const mockDoctors = [
@@ -46,7 +47,10 @@ const mockDoctors = [
   { id: 'd6', name: 'Dr. Carlos Rivera', specialty: 'family_medicine' },
   { id: 'd7', name: 'Dr. Sofia Petrova', specialty: 'psychiatry' },
   { id: 'd8', name: 'Mr. David Lee', specialty: 'physical_therapy' },
+  { id: 'd9', name: 'Dr. Alice Wonderland', specialty: 'general' },
+  { id: 'd10', name: 'Dr. Bob The Builder', specialty: 'family_medicine'},
 ];
+
 
 // Schemas for multi-step form
 const step1Schema = z.object({
@@ -92,11 +96,19 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
       return zodResolver(currentValidationSchema)(data, context, options);
     },
     mode: 'onChange',
+    defaultValues: {
+        serviceId: '',
+        doctorId: '',
+        appointmentDate: undefined,
+        appointmentTime: '',
+        notes: '',
+    }
   });
 
-  const selectedDate = watch('appointmentDate');
   const selectedServiceId = watch('serviceId');
   const selectedDoctorId = watch('doctorId');
+  const selectedDate = watch('appointmentDate');
+  
 
   useEffect(() => {
     if (selectedServiceId) {
@@ -104,19 +116,30 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
       if (service) {
         setFilteredDoctors(mockDoctors.filter(doc => service.relatedSpecialties.includes(doc.specialty)));
       }
-      setValue('doctorId', ''); // Reset doctor if service changes
-      setValue('appointmentDate', undefined); // Reset date if service changes
-      setValue('appointmentTime', ''); // Reset time if service changes
+      setValue('doctorId', ''); 
+      setValue('appointmentDate', undefined); 
+      setValue('appointmentTime', ''); 
     } else {
-      setFilteredDoctors(mockDoctors); // Show all if no service
+      setFilteredDoctors(mockDoctors); 
     }
   }, [selectedServiceId, setValue]);
+
+  useEffect(() => {
+    if (selectedDoctorId) {
+        // If doctor changes, time slots might change, so reset time.
+        setValue('appointmentTime', '');
+    }
+  }, [selectedDoctorId, setValue]);
 
 
   useEffect(() => {
     if (selectedDate && selectedServiceId && selectedDoctorId) {
       const service = mockServices.find(s => s.id === selectedServiceId);
-      if (!service) return;
+      if (!service) {
+        setAvailableTimeSlots([]);
+        setValue('appointmentTime', ''); // Reset time if service is invalid
+        return;
+      }
 
       const slots: string[] = [];
       const today = startOfDay(new Date());
@@ -134,24 +157,28 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
 
       while (currentTime < closingTime) {
         const slotEnd = new Date(currentTime.getTime() + service.duration * 60000);
-        // For today, only show future slots
         if (slotEnd <= closingTime && (dateFnsIsToday(currentSelectedDate) ? currentTime > new Date() : true)) {
           slots.push(format(currentTime, 'HH:mm'));
         }
-        currentTime = new Date(currentTime.getTime() + Math.max(15, service.duration) * 60000); // Ensure slot progression
+        currentTime = new Date(currentTime.getTime() + Math.max(15, service.duration) * 60000); 
       }
       setAvailableTimeSlots(slots);
+      // If currently selected time is no longer in the new list of slots, reset it
+      if (watch('appointmentTime') && !slots.includes(watch('appointmentTime')!)) {
+        setValue('appointmentTime', '');
+      }
     } else {
       setAvailableTimeSlots([]);
+      setValue('appointmentTime', ''); // Also reset if conditions for slots aren't met
     }
-  }, [selectedDate, selectedServiceId, selectedDoctorId, setValue]);
+  }, [selectedDate, selectedServiceId, selectedDoctorId, setValue, watch]);
 
 
   const handleNextStep = async () => {
     let fieldsToValidate: (keyof CombinedFormValues)[] = [];
     if (currentStep === 1) fieldsToValidate = ['serviceId'];
-    if (currentStep === 2) fieldsToValidate = ['serviceId', 'doctorId', 'appointmentDate'];
-    if (currentStep === 3) fieldsToValidate = ['serviceId', 'doctorId', 'appointmentDate', 'appointmentTime'];
+    else if (currentStep === 2) fieldsToValidate = ['serviceId', 'doctorId', 'appointmentDate']; // Validate all up to current
+    else if (currentStep === 3) fieldsToValidate = ['serviceId', 'doctorId', 'appointmentDate', 'appointmentTime']; // Validate all up to current
     
     const result = await trigger(fieldsToValidate);
     if (result) {
@@ -165,8 +192,7 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
 
   const onSubmitForm: SubmitHandler<CombinedFormValues> = async (data) => {
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
+    
     if (!data.appointmentDate || !(data.appointmentDate instanceof Date) || isNaN(data.appointmentDate.getTime())) {
       console.error("Invalid or missing appointmentDate in onSubmit before formatting:", data.appointmentDate);
       toast({
@@ -178,6 +204,8 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
       setIsLoading(false);
       return;
     }
+    
+    await new Promise(resolve => setTimeout(resolve, 1500)); 
 
     toast({
       title: "Appointment Booked!",
@@ -191,10 +219,10 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
   };
 
   const handleCloseDialog = () => {
-    reset();
+    reset(); // Reset form to defaultValues
     setCurrentStep(1);
     setBookingComplete(false);
-    setFilteredDoctors(mockDoctors);
+    setFilteredDoctors(mockDoctors); // Reset filtered doctors
     onClose();
   };
 
@@ -248,7 +276,7 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
         </div>
 
         <form onSubmit={handleSubmit(onSubmitForm)} className="flex-grow overflow-y-auto px-6 pb-6 space-y-6">
-          {currentStep === 1 && (
+          {currentStep === 1 && ( // Step 1: Select Service
             <div className="space-y-6 animate-fadeIn">
               <Card className="shadow-lg border border-border hover:shadow-xl hover:border-primary/40 transition-all duration-300">
                 <CardHeader>
@@ -260,7 +288,13 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                     name="serviceId"
                     control={control}
                     render={({ field }) => (
-                      <Select onValueChange={field.onChange} value={field.value || ''}>
+                      <Select 
+                        onValueChange={(value) => {
+                            field.onChange(value);
+                            trigger('serviceId'); // Explicitly trigger validation
+                        }} 
+                        value={field.value || ''}
+                      >
                         <SelectTrigger className="w-full text-base py-3 rounded-md focus:ring-2 focus:ring-primary/80">
                           <SelectValue placeholder="Choose a service..." />
                         </SelectTrigger>
@@ -280,7 +314,7 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
             </div>
           )}
 
-          {currentStep === 2 && (
+          {currentStep === 2 && ( // Step 2: Select Doctor & Date
             <div className="space-y-6 animate-fadeIn">
                <Card className="shadow-lg border border-border hover:shadow-xl hover:border-primary/40 transition-all duration-300">
                 <CardHeader>
@@ -294,7 +328,13 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                     name="doctorId"
                     control={control}
                     render={({ field }) => (
-                      <Select onValueChange={field.onChange} value={field.value || ''}>
+                      <Select 
+                        onValueChange={(value) => {
+                            field.onChange(value);
+                            trigger('doctorId'); // Explicitly trigger validation
+                        }} 
+                        value={field.value || ''}
+                      >
                         <SelectTrigger className="w-full text-base py-3 rounded-md focus:ring-2 focus:ring-primary/80">
                           <SelectValue placeholder="Choose a doctor..." />
                         </SelectTrigger>
@@ -307,7 +347,7 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                         </SelectContent>
                       </Select>
                     )}
-                  /> ) : ( <p className="text-muted-foreground text-center py-4">No doctors available for the selected service. Please try another service.</p> )
+                  /> ) : ( <p className="text-muted-foreground text-center py-4">No doctors available for this service. Please select another service.</p> )
                   ) : ( <p className="text-muted-foreground text-center py-4">Please select a service first to see available doctors.</p> )}
                   {errors.doctorId && <p className="text-sm text-destructive mt-1.5">{errors.doctorId.message}</p>}
                 </CardContent>
@@ -327,7 +367,8 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                         selected={field.value}
                         onSelect={(date) => {
                           field.onChange(date);
-                          setValue('appointmentTime', '');
+                          setValue('appointmentTime', ''); // Reset time when date changes
+                          trigger('appointmentDate'); // Explicitly trigger validation
                         }}
                         disabled={(date) => isPast(date) && !dateFnsIsToday(date)}
                         className="rounded-md border-2 border-border shadow-inner bg-background/30"
@@ -341,22 +382,25 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
             </div>
           )}
 
-          {currentStep === 3 && (
+          {currentStep === 3 && ( // Step 3: Select Time Slot
              <div className="space-y-6 animate-fadeIn">
               <Card className="shadow-lg border border-border hover:shadow-xl hover:border-primary/40 transition-all duration-300">
                 <CardHeader>
                   <CardTitle className="text-xl flex items-center gap-2"><Clock className="text-primary"/>Select Time Slot</CardTitle>
-                  <CardDescription>Choose an available time for your appointment.</CardDescription>
+                  <CardDescription>Choose an available time for your appointment on {selectedDate ? format(selectedDate, 'MMMM d, yyyy') : 'the selected date'}.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {selectedDate && selectedDoctorId ? (
+                  {selectedDate && selectedDoctorId && selectedServiceId ? (
                     availableTimeSlots.length > 0 ? (
                       <Controller
                         name="appointmentTime"
                         control={control}
                         render={({ field }) => (
                           <RadioGroup
-                            onValueChange={field.onChange}
+                            onValueChange={(value) => {
+                                field.onChange(value);
+                                trigger('appointmentTime'); // Explicitly trigger validation
+                            }}
                             value={field.value || ''}
                             className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3"
                           >
@@ -375,7 +419,7 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                         )}
                       />
                     ) : (
-                      <p className="text-muted-foreground text-center py-4">No available time slots for this date/doctor. Please select another date or doctor.</p>
+                      <p className="text-muted-foreground text-center py-4">No available time slots for this date/doctor/service. Please adjust your selections.</p>
                     )
                   ) : (
                     <p className="text-muted-foreground text-center py-4">Please select a service, doctor, and date first to see available time slots.</p>
@@ -386,7 +430,7 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
              </div>
           )}
 
-          {currentStep === 4 && (
+          {currentStep === 4 && ( // Step 4: Review & Confirm
             <div className="space-y-6 animate-fadeIn">
               <Card className="shadow-xl border border-primary/20 bg-gradient-to-br from-background to-muted/30">
                 <CardHeader>
@@ -451,7 +495,7 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                 <Button
                   type="button"
                   onClick={handleNextStep}
-                  disabled={isLoading}
+                  disabled={isLoading} 
                   className="bg-primary hover:bg-primary/90 text-primary-foreground py-3 px-5 text-base rounded-md shadow-md hover:shadow-lifted transition-all duration-300 transform hover:scale-105"
                 >
                   Next <ChevronRight className="ml-1.5 h-5 w-5" />
@@ -474,3 +518,4 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
     </Dialog>
   );
 }
+
