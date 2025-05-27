@@ -1,9 +1,10 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Menu, Bell, UserCircle } from "lucide-react";
-import { AppSidebar } from "./Sidebar"; // Import the actual sidebar to put in Sheet
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"; // Keep for potential future use or different mobile patterns, but hide trigger
+import { Menu, Bell, UserCircle, Settings } from "lucide-react"; // Added Settings
+import { AppSidebar } from "./Sidebar";
 import { useAuth } from "@/contexts/AuthContext";
 import Link from "next/link";
 import {
@@ -15,46 +16,26 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AppLogo } from "./AppLogo";
-
+import { useSidebar } from "@/components/ui/sidebar"; // Import useSidebar
 
 export function AppHeader() {
-  const { user, logout } = useAuth();
+  const { userProfile: user, logout } = useAuth(); // Changed user to userProfile
+  const { toggleSidebar } = useSidebar(); // Get toggleSidebar from context
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background/80 backdrop-blur-sm px-4 md:px-6">
+    <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background/80 px-4 backdrop-blur-sm md:px-6">
+      {/* Hamburger menu for Desktop Sidebar Toggle, hidden on mobile where BottomNav is primary */}
+      <Button variant="outline" size="icon" onClick={toggleSidebar} className="hidden md:inline-flex">
+        <Menu className="h-5 w-5" />
+        <span className="sr-only">Toggle Sidebar</span>
+      </Button>
+      
+      {/* App Logo - visible on mobile when sidebar hamburger is not shown */}
       <div className="md:hidden">
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button variant="outline" size="icon">
-              <Menu className="h-5 w-5" />
-              <span className="sr-only">Toggle navigation menu</span>
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="flex flex-col p-0 w-64">
-             {/* This approach reuses AppSidebar inside the sheet which might be complex.
-                 A simpler mobile-specific nav list might be better if AppSidebar has issues. */}
-            <div className="flex h-full max-h-screen flex-col">
-                <div className="flex h-[60px] items-center border-b px-6">
-                  <AppLogo iconSize={24} textSize="text-lg" />
-                </div>
-                <div className="flex-1 overflow-y-auto py-2">
-                {/* Simplified nav for mobile sheet to avoid full sidebar complexity in sheet */}
-                <nav className="grid items-start px-4 text-sm font-medium">
-                    <Link href="/dashboard" className="flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary">Dashboard</Link>
-                    <Link href="/insights" className="flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary">Insights Hub</Link>
-                    <Link href="/ai-assistant" className="flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary">AI Assistant</Link>
-                    <Link href="/profile" className="flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary">Profile</Link>
-                </nav>
-                </div>
-            </div>
-          </SheetContent>
-        </Sheet>
+        <AppLogo iconSize={28} textSize="text-xl" />
       </div>
 
-      <div className="flex w-full items-center justify-end gap-4 md:ml-auto md:gap-2 lg:gap-4">
-        {/* Future: Search bar or other header items can go here */}
-        {/* <Search className="h-5 w-5 text-muted-foreground" /> */}
-        
+      <div className="flex w-full items-center justify-end gap-2 md:ml-auto md:gap-2 lg:gap-4">
         <Button variant="ghost" size="icon" className="rounded-full">
           <Bell className="h-5 w-5" />
           <span className="sr-only">Notifications</span>
@@ -79,10 +60,15 @@ export function AppHeader() {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
-                <Link href="/profile">Profile</Link>
+                <Link href="/profile" className="flex items-center gap-2">
+                  <UserCircle className="h-4 w-4" /> Profile
+                </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem>Billing (Placeholder)</DropdownMenuItem>
-              <DropdownMenuItem>Settings (Placeholder)</DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                 <Link href="/profile#ai-prefs" className="flex items-center gap-2">
+                    <Settings className="h-4 w-4" /> Settings
+                 </Link>
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={logout} className="text-destructive focus:text-destructive focus:bg-destructive/10">
                 Log out

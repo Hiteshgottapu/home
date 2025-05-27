@@ -1,3 +1,4 @@
+
 import type { Config } from "tailwindcss";
 
 export default {
@@ -67,7 +68,7 @@ export default {
   			sm: 'calc(var(--radius) - 4px)'
   		},
   		fontFamily: {
-        sans: ['var(--font-inter)', 'sans-serif'], // Ensure Inter is primary sans-serif
+        sans: ['var(--font-inter)', 'sans-serif'], 
       },
   		keyframes: {
   			'accordion-down': {
@@ -96,7 +97,10 @@ export default {
   			'accordion-down': 'accordion-down 0.2s ease-out',
   			'accordion-up': 'accordion-up 0.2s ease-out',
         'spin-slow': 'spin-slow 3s linear infinite',
-  		}
+  		},
+      boxShadow: {
+        'top': '0 -4px 6px -1px rgb(0 0 0 / 0.1), 0 -2px 4px -2px rgb(0 0 0 / 0.1)',
+      }
   	}
   },
   plugins: [require("tailwindcss-animate")],
