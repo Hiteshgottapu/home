@@ -11,7 +11,8 @@ import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, ChartLe
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
 import { ActiveGoalTaskMenu } from '@/components/dashboard/ActiveGoalTaskMenu';
 import { ManagedPrescriptionsModal } from '@/components/dashboard/ManagedPrescriptionsModal';
-import { InteractionLogModal, type MockAiChatEntry, type MockDoctorNoteEntry } from '@/components/dashboard/InteractionLogModal'; // Added import
+import { InteractionLogModal, type MockAiChatEntry, type MockDoctorNoteEntry } from '@/components/dashboard/InteractionLogModal';
+import { AppointmentBookingModal } from '@/components/dashboard/AppointmentBookingModal'; // Added import
 
 const mockChartData = [
   { month: "Jan", tasks: Math.floor(Math.random() * 20) + 5, goals: Math.floor(Math.random() * 5) + 1 },
@@ -73,7 +74,8 @@ export default function DashboardPage() {
   const { userProfile: user } = useAuth();
   const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false);
   const [isPrescriptionsModalOpen, setIsPrescriptionsModalOpen] = useState(false);
-  const [isInteractionLogModalOpen, setIsInteractionLogModalOpen] = useState(false); // State for new modal
+  const [isInteractionLogModalOpen, setIsInteractionLogModalOpen] = useState(false);
+  const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false); // State for appointment modal
 
   if (!user) {
     return (
@@ -85,10 +87,7 @@ export default function DashboardPage() {
   
   const activeGoalsCount = user.healthGoals.filter(g => g.status === 'in_progress').length;
   const prescriptionsCount = mockDashboardPrescriptions.length;
-  const upcomingAppointmentsCount = 0; // Placeholder
-
-  // Placeholder for actual potential interactions count
-  const potentialInteractionsCount = 0; 
+  const upcomingAppointmentsCount = 0; // Placeholder, will be 0 until booking is implemented
 
   return (
     <div className="container mx-auto py-2 px-0 md:px-4">
@@ -99,7 +98,6 @@ export default function DashboardPage() {
         <p className="text-muted-foreground">Let's take charge of your well-being today.</p>
       </div>
 
-      {/* Proactive Nudge Card Section */}
       <div className="mb-6">
         <Card className="bg-gradient-to-br from-primary/10 to-accent/10 border-primary/20 shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-[1.02]">
           <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
@@ -118,7 +116,6 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Key Health Indicators Section */}
       <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <Card 
           className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 cursor-pointer"
@@ -156,7 +153,7 @@ export default function DashboardPage() {
         
         <Card 
           className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 cursor-pointer"
-          onClick={() => setIsInteractionLogModalOpen(true)} // Opens the new modal
+          onClick={() => setIsInteractionLogModalOpen(true)}
           role="button"
           tabIndex={0}
           aria-label="View interaction log"
@@ -166,25 +163,29 @@ export default function DashboardPage() {
             <MessageSquareWarning className="h-5 w-5 text-destructive" />
           </CardHeader>
           <CardContent>
-            {/* The count here is a placeholder. Actual logic would determine this. */}
             <div className="text-2xl font-bold text-destructive">{mockAiChatLogs.length + mockDoctorNotes.length}</div>
             <p className="text-xs text-muted-foreground">View AI chats & doctor notes.</p>
           </CardContent>
         </Card>
 
-        <Card className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105">
+        <Card 
+          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 cursor-pointer"
+          onClick={() => setIsAppointmentModalOpen(true)} // Opens the appointment modal
+          role="button"
+          tabIndex={0}
+          aria-label="Book or view upcoming appointments"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Upcoming Appointments</CardTitle>
             <CalendarCheck className="h-5 w-5 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-primary">{upcomingAppointmentsCount}</div>
-            <p className="text-xs text-muted-foreground">No appointments scheduled.</p>
+            <p className="text-xs text-muted-foreground">{upcomingAppointmentsCount > 0 ? `View appointments` : `Book an appointment`}</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Quick Actions */}
       <section className="mt-8">
         <h2 className="text-xl font-semibold mb-4 text-foreground">Quick Actions</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -215,7 +216,6 @@ export default function DashboardPage() {
         </div>
       </section>
       
-      {/* Interactive Charts Section */}
       <section className="mt-8">
         <h2 className="text-xl font-semibold mb-4 text-foreground">Your Progress Overview</h2>
         <div className="grid md:grid-cols-2 gap-6">
@@ -260,7 +260,6 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Empty State Example (if no data) */}
       {activeGoalsCount === 0 && prescriptionsCount === 0 && (
          <section className="mt-12 text-center">
             <Card className="max-w-lg mx-auto p-8 bg-card shadow-lg">
@@ -291,6 +290,10 @@ export default function DashboardPage() {
         onClose={() => setIsInteractionLogModalOpen(false)}
         aiChatLogs={mockAiChatLogs}
         doctorNotes={mockDoctorNotes}
+      />
+      <AppointmentBookingModal 
+        isOpen={isAppointmentModalOpen}
+        onClose={() => setIsAppointmentModalOpen(false)}
       />
     </div>
   );
