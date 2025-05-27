@@ -2,12 +2,12 @@
 "use client";
 
 import type { Prescription } from '@/types';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription as ShadCardDescription, DialogClose } from "@/components/ui/dialog"; // Aliased DialogDescription
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription as ShadCardDescription } from "@/components/ui/dialog"; // Aliased DialogDescription
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle as ShadCardTitle } from "@/components/ui/card"; // Aliased CardTitle to avoid conflict
 import { ScrollArea } from "@/components/ui/scroll-area";
 import Image from 'next/image';
-import { FileText, CalendarDays, Pill, Thermometer, Repeat, Percent, User, Stethoscope, X, Trash2, AlertTriangle } from 'lucide-react';
+import { FileText, CalendarDays, Pill, Thermometer, Repeat, Percent, User, Stethoscope, Trash2, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -22,7 +22,7 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialogTitle, // Renamed to avoid conflict if used directly
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
@@ -39,6 +39,7 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
 
   useEffect(() => {
     if (isOpen) {
+      // Reset to initial prescriptions when modal opens or initialPrescriptions prop changes
       setCurrentPrescriptions(initialPrescriptions); 
     }
   }, [isOpen, initialPrescriptions]);
@@ -83,6 +84,7 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
     }
   };
   
+  // Return null if modal is closed and no deletion is pending, helps with unmounting & state reset
   if (!isOpen && currentPrescriptions.length === 0 && !prescriptionToDelete) { 
       return null; 
   }
@@ -90,7 +92,7 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) { onClose(); setPrescriptionToDelete(null); } }}>
-      <DialogContent className="max-w-3xl w-[95vw] md:w-[90vw] h-[90vh] md:h-[85vh] flex flex-col bg-card shadow-2xl rounded-lg border-border">
+      <DialogContent className="max-w-3xl w-[95vw] md:w-[90vw] h-[80vh] md:h-[75vh] flex flex-col bg-card shadow-2xl rounded-lg border-border">
         <DialogHeader className="p-6 border-b border-border sticky top-0 bg-card z-10">
           <DialogTitle className="text-2xl font-semibold text-foreground flex items-center gap-2">
             <FileText className="h-7 w-7 text-primary" />
@@ -101,7 +103,7 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
           </ShadCardDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-grow px-6 py-2">
+        <ScrollArea className="flex-grow px-6 py-2"> {/* Adjusted py for spacing from header */}
           {currentPrescriptions.length === 0 ? (
              <div className="flex flex-col items-center justify-center h-full text-center py-10">
                 <FileText className="h-16 w-16 text-muted-foreground mx-auto mb-4" data-ai-hint="document icon" />
@@ -125,7 +127,7 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
                         className="absolute top-3 right-3 z-20 h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
                         aria-label="Delete prescription"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-5 w-5" /> {/* Standardized icon size */}
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
@@ -165,9 +167,9 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
                     {/* Details Side */}
                     <div className="p-5 flex flex-col">
                       <CardHeader className="p-0 pb-3">
-                        <CardTitle className="text-lg text-primary truncate" title={prescription.fileName}>
+                        <ShadCardTitle className="text-lg text-primary truncate" title={prescription.fileName}>
                           {prescription.fileName}
-                        </CardTitle>
+                        </ShadCardTitle>
                         <ShadCardDescription className="text-xs flex items-center gap-1.5 mt-1">
                           <CalendarDays className="h-3.5 w-3.5" /> Uploaded: {format(new Date(prescription.uploadDate), "MMM d, yyyy")}
                         </ShadCardDescription>
@@ -214,7 +216,7 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
                           <p className="text-sm text-muted-foreground italic pt-2">No medications extracted for this item.</p>
                         )}
                       </CardContent>
-                       <div className="p-0 pt-4 mt-auto">
+                       <div className="p-0 pt-4 mt-auto"> {/* CardFooter replacement for layout */}
                           <Link href={`/insights#${prescription.id}`} passHref legacyBehavior>
                              <Button variant="outline" size="sm" className="w-full" onClick={() => { onClose(); setPrescriptionToDelete(null); }}>
                                View Full Details in Insights Hub
@@ -228,7 +230,9 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
             </div>
           )}
         </ScrollArea>
+        {/* Removed DialogFooter as per user request */}
       </DialogContent>
     </Dialog>
   );
 }
+
