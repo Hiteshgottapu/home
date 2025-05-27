@@ -71,10 +71,15 @@ export function AppointmentBookingModal({ isOpen, onClose }: AppointmentBookingM
 
   const { control, handleSubmit, watch, setValue, reset, formState: { errors, isValid } } = useForm<CombinedFormValues>({
     resolver: async (data, context, options) => {
-      if (currentStep === 1) return zodResolver(step1Schema)(data, context, options);
-      if (currentStep === 2) return zodResolver(step2Schema)(data, context, options);
-      if (currentStep === 3) return zodResolver(step3Schema)(data, context, options);
-      return { values: data, errors: {} };
+      let currentValidationSchema;
+      if (currentStep === 1) {
+        currentValidationSchema = step1Schema;
+      } else if (currentStep === 2) {
+        currentValidationSchema = step1Schema.merge(step2Schema); // Validate step1 + step2 data
+      } else { // currentStep === 3 (this is also for the final submission)
+        currentValidationSchema = step1Schema.merge(step2Schema).merge(step3Schema); // Validate all collected data
+      }
+      return zodResolver(currentValidationSchema)(data, context, options);
     },
     mode: 'onChange', // Validate on change for better UX
   });
@@ -118,8 +123,9 @@ export function AppointmentBookingModal({ isOpen, onClose }: AppointmentBookingM
   
 
   const handleNextStep = async () => {
-    const result = await handleSubmit(() => { // Trigger validation for current step
-        setCurrentStep(prev => Math.min(prev + 1, 4));
+    // Trigger validation for current step (using the merged schema up to current step)
+    const result = await handleSubmit(() => { 
+        setCurrentStep(prev => Math.min(prev + 1, 3)); // Max step is 3 for form input
     })();
   };
 
@@ -128,34 +134,35 @@ export function AppointmentBookingModal({ isOpen, onClose }: AppointmentBookingM
   };
 
   const onSubmit = async (data: CombinedFormValues) => {
-    if (currentStep === 3) { // Confirmation step
-      setIsLoading(true);
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      console.log("Appointment Data:", data);
+    // This onSubmit is called only when the final "Confirm Appointment" button is clicked.
+    // currentStep will be 3 at this point.
+    setIsLoading(true);
+    // Simulate API call
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    
+    console.log("Submitting Appointment Data:", data);
 
-      // Defensive check for appointmentDate
-      if (!data.appointmentDate || !(data.appointmentDate instanceof Date) || isNaN(data.appointmentDate.getTime())) {
-          console.error("Invalid or missing appointmentDate in onSubmit before formatting:", data.appointmentDate);
-          toast({
-              title: "Booking Error",
-              description: "The selected appointment date is invalid. Please go back and select a valid date.",
-              variant: "destructive",
-              duration: 7000, 
-          });
-          setIsLoading(false);
-          return; 
-      }
-
-      toast({
-        title: "Appointment Booked!",
-        description: `Your appointment with ${mockDoctors.find(d => d.id === data.doctorId)?.name} on ${format(data.appointmentDate, 'PPP')} at ${data.appointmentTime} is confirmed.`,
-        variant: 'default',
-        duration: 5000,
-      });
-      setIsLoading(false);
-      setBookingComplete(true);
+    // Defensive check for appointmentDate
+    if (!data.appointmentDate || !(data.appointmentDate instanceof Date) || isNaN(data.appointmentDate.getTime())) {
+        console.error("Invalid or missing appointmentDate in onSubmit before formatting:", data.appointmentDate);
+        toast({
+            title: "Booking Error",
+            description: "The selected appointment date is invalid. Please go back and select a valid date.",
+            variant: "destructive",
+            duration: 7000, 
+        });
+        setIsLoading(false);
+        return; 
     }
+
+    toast({
+      title: "Appointment Booked!",
+      description: `Your appointment with ${mockDoctors.find(d => d.id === data.doctorId)?.name} on ${format(data.appointmentDate, 'PPP')} at ${data.appointmentTime} is confirmed.`,
+      variant: 'default',
+      duration: 5000,
+    });
+    setIsLoading(false);
+    setBookingComplete(true);
   };
 
   const handleCloseDialog = () => {
@@ -200,6 +207,7 @@ export function AppointmentBookingModal({ isOpen, onClose }: AppointmentBookingM
             <p className="text-xs text-muted-foreground mt-1 text-right">Step {currentStep} of 3</p>
         </div>
         
+        {/* Use a single form tag that wraps all steps */}
         <form onSubmit={handleSubmit(onSubmit)} className="flex-grow overflow-y-auto px-6 pb-6 space-y-6">
           {/* Step 1: Service and Doctor Selection */}
           {currentStep === 1 && (
@@ -379,27 +387,29 @@ export function AppointmentBookingModal({ isOpen, onClose }: AppointmentBookingM
               </Card>
             </div>
           )}
-        </form>
+        
 
-        <DialogFooter className="p-6 border-t bg-muted/30 sticky bottom-0">
-          <div className="flex w-full justify-between items-center">
-            <Button variant="outline" onClick={handlePreviousStep} disabled={currentStep === 1 || isLoading}>
-              <ChevronLeft className="mr-1 h-4 w-4" /> Previous
-            </Button>
-            
-            {currentStep < 3 && (
-              <Button onClick={handleNextStep} disabled={isLoading || !isValid}>
-                Next <ChevronRight className="ml-1 h-4 w-4" />
+          {/* Footer is outside the step-specific rendering, but inside the form */}
+          <DialogFooter className="p-6 border-t bg-muted/30 sticky bottom-0 !mt-auto"> {/* !mt-auto to override space-y from parent */}
+            <div className="flex w-full justify-between items-center">
+              <Button variant="outline" type="button" onClick={handlePreviousStep} disabled={currentStep === 1 || isLoading}>
+                <ChevronLeft className="mr-1 h-4 w-4" /> Previous
               </Button>
-            )}
-            {currentStep === 3 && (
-              <Button type="submit" onClick={handleSubmit(onSubmit)} disabled={isLoading || !isValid} className="bg-green-600 hover:bg-green-700 text-white">
-                {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
-                Confirm Appointment
-              </Button>
-            )}
-          </div>
-        </DialogFooter>
+              
+              {currentStep < 3 && (
+                <Button type="button" onClick={handleNextStep} disabled={isLoading || !isValid}>
+                  Next <ChevronRight className="ml-1 h-4 w-4" />
+                </Button>
+              )}
+              {currentStep === 3 && (
+                <Button type="submit" disabled={isLoading || !isValid} className="bg-green-600 hover:bg-green-700 text-white">
+                  {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+                  Confirm Appointment
+                </Button>
+              )}
+            </div>
+          </DialogFooter>
+        </form> {/* Form tag closes here */}
       </DialogContent>
     </Dialog>
   );
@@ -412,7 +422,5 @@ const isToday = (someDate: Date) => {
     someDate.getMonth() === today.getMonth() &&
     someDate.getFullYear() === today.getFullYear();
 };
-
-    
 
     
