@@ -66,6 +66,9 @@ export default {
   			md: 'calc(var(--radius) - 2px)',
   			sm: 'calc(var(--radius) - 4px)'
   		},
+  		fontFamily: {
+        sans: ['var(--font-inter)', 'sans-serif'], // Ensure Inter is primary sans-serif
+      },
   		keyframes: {
   			'accordion-down': {
   				from: {
@@ -82,11 +85,17 @@ export default {
   				to: {
   					height: '0'
   				}
-  			}
+  			},
+        'spin-slow': {
+          'to': {
+            transform: 'rotate(360deg)'
+          }
+        }
   		},
   		animation: {
   			'accordion-down': 'accordion-down 0.2s ease-out',
-  			'accordion-up': 'accordion-up 0.2s ease-out'
+  			'accordion-up': 'accordion-up 0.2s ease-out',
+        'spin-slow': 'spin-slow 3s linear infinite',
   		}
   	}
   },
