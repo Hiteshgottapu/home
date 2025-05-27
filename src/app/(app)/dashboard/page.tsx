@@ -4,12 +4,13 @@ import { useState } from 'react'; // Added for modal state
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { TrendingUp, Activity, FilePlus, MessageSquareWarning, ShieldCheck, Zap, ListChecks, Lightbulb, BarChartHorizontalBig, Download, CalendarCheck, Target, Timer } from 'lucide-react'; // Added Target, Timer
+import { TrendingUp, Activity, FilePlus, MessageSquareWarning, ShieldCheck, Zap, ListChecks, Lightbulb, BarChartHorizontalBig, Download, CalendarCheck, Target, Timer, Eye } from 'lucide-react'; // Added Eye, Target, Timer
 import Link from 'next/link';
 import Image from 'next/image';
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
-import { ActiveGoalTaskMenu } from '@/components/dashboard/ActiveGoalTaskMenu'; // Added import
+import { ActiveGoalTaskMenu } from '@/components/dashboard/ActiveGoalTaskMenu';
+import { ManagedPrescriptionsModal } from '@/components/dashboard/ManagedPrescriptionsModal'; // Added import
 
 const mockChartData = [
   { month: "Jan", tasks: Math.floor(Math.random() * 20) + 5, goals: Math.floor(Math.random() * 5) + 1 },
@@ -31,10 +32,37 @@ const mockPieData = [
   { name: 'Pending', value: 2, fill: 'hsl(var(--muted))' },
 ];
 
+// Mock prescription data for the modal - in a real app, this would come from context or API
+const mockDashboardPrescriptions = [
+  {
+    id: 'dash_pres_1',
+    fileName: 'Initial_Amoxicillin_Rx.pdf',
+    uploadDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+    status: 'verified' as const,
+    extractedMedications: [{ name: 'Amoxicillin', dosage: '500mg', frequency: 'Twice daily' }],
+    ocrConfidence: 0.95,
+    imageUrl: 'https://placehold.co/400x500.png', // Placeholder image
+    patientName: 'Alex Ryder',
+    doctor: 'Dr. Emily Carter'
+  },
+  {
+    id: 'dash_pres_2',
+    fileName: 'FollowUp_Lisinopril.jpg',
+    uploadDate: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
+    status: 'needs_correction' as const,
+    extractedMedications: [{ name: 'Lisinopril', dosage: '10mg', frequency: 'Once daily (Morning)' }, { name: 'Metformin', dosage: '500mg', frequency: 'Twice daily with meals'}],
+    ocrConfidence: 0.78,
+    imageUrl: 'https://placehold.co/400x550.png', // Placeholder image
+    patientName: 'Alex Ryder',
+    doctor: 'Dr. Ben Zhao'
+  },
+];
+
 
 export default function DashboardPage() {
   const { userProfile: user } = useAuth();
-  const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false); // State for the new modal
+  const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false);
+  const [isPrescriptionsModalOpen, setIsPrescriptionsModalOpen] = useState(false); // State for prescriptions modal
 
   if (!user) {
     return (
@@ -45,7 +73,7 @@ export default function DashboardPage() {
   }
   
   const activeGoalsCount = user.healthGoals.filter(g => g.status === 'in_progress').length;
-  const prescriptionsCount = 0; // Placeholder
+  const prescriptionsCount = mockDashboardPrescriptions.length; // Updated to use mock data length
   const upcomingAppointmentsCount = 0; // Placeholder for new card
 
   return (
@@ -59,7 +87,7 @@ export default function DashboardPage() {
 
       {/* Proactive Nudge Card Section */}
       <div className="mb-6">
-        <Card className="bg-gradient-to-br from-primary/10 to-accent/10 border-primary/20 shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-105">
+        <Card className="bg-gradient-to-br from-primary/10 to-accent/10 border-primary/20 shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-[1.02]"> {/* Adjusted hover scale */}
           <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
             <div className="space-y-1">
               <CardTitle className="text-lg font-semibold text-primary">Today's Focus</CardTitle>
@@ -95,14 +123,20 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105">
+        <Card 
+          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 cursor-pointer"
+          onClick={() => setIsPrescriptionsModalOpen(true)}
+          role="button"
+          tabIndex={0}
+          aria-label="View managed prescriptions"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Managed Prescriptions</CardTitle>
             <FilePlus className="h-5 w-5 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-primary">{prescriptionsCount}</div>
-            <p className="text-xs text-muted-foreground">Awaiting first upload.</p>
+            <p className="text-xs text-muted-foreground">{prescriptionsCount > 0 ? `View details` : `Awaiting first upload.`}</p>
           </CardContent>
         </Card>
         
@@ -226,6 +260,11 @@ export default function DashboardPage() {
         </section>
       )}
       <ActiveGoalTaskMenu isOpen={isTaskMenuOpen} onClose={() => setIsTaskMenuOpen(false)} />
+      <ManagedPrescriptionsModal 
+        isOpen={isPrescriptionsModalOpen} 
+        onClose={() => setIsPrescriptionsModalOpen(false)}
+        prescriptions={mockDashboardPrescriptions} 
+      />
     </div>
   );
 }

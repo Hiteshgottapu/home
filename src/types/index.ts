@@ -1,3 +1,4 @@
+
 export interface MedicationDetail {
   name: string;
   dosage: string;
@@ -14,6 +15,7 @@ export interface Prescription {
   doctor?: string;
   patientName?: string;
   fileUrl?: string; // URL to the uploaded file if needed
+  imageUrl?: string; // URL for the prescription image itself for display
   userVerificationStatus?: 'pending' | 'verified' | 'needs_correction';
 }
 
