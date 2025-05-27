@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { TrendingUp, Activity, FilePlus, MessageSquareWarning, ShieldCheck, Zap, ListChecks, Lightbulb, BarChartHorizontalBig, Download, CalendarCheck, Target, Timer, Eye } from 'lucide-react';
+import { TrendingUp, Activity, FilePlus, MessageSquareWarning, ShieldCheck, Zap, ListChecks, Lightbulb, BarChartHorizontalBig, Download, CalendarCheck, Target, Timer, Eye, Gift } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
@@ -12,7 +12,7 @@ import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer, PieCha
 import { ActiveGoalTaskMenu } from '@/components/dashboard/ActiveGoalTaskMenu';
 import { ManagedPrescriptionsModal } from '@/components/dashboard/ManagedPrescriptionsModal';
 import { InteractionLogModal, type MockAiChatEntry, type MockDoctorNoteEntry } from '@/components/dashboard/InteractionLogModal';
-import { AppointmentBookingModal } from '@/components/dashboard/AppointmentBookingModal'; // Added import
+import { AppointmentBookingModal } from '@/components/dashboard/AppointmentBookingModal'; 
 
 const mockChartData = [
   { month: "Jan", tasks: Math.floor(Math.random() * 20) + 5, goals: Math.floor(Math.random() * 5) + 1 },
@@ -75,7 +75,7 @@ export default function DashboardPage() {
   const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false);
   const [isPrescriptionsModalOpen, setIsPrescriptionsModalOpen] = useState(false);
   const [isInteractionLogModalOpen, setIsInteractionLogModalOpen] = useState(false);
-  const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false); // State for appointment modal
+  const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
 
   if (!user) {
     return (
@@ -87,7 +87,7 @@ export default function DashboardPage() {
   
   const activeGoalsCount = user.healthGoals.filter(g => g.status === 'in_progress').length;
   const prescriptionsCount = mockDashboardPrescriptions.length;
-  const upcomingAppointmentsCount = 0; // Placeholder, will be 0 until booking is implemented
+  const upcomingAppointmentsCount = 0; // Placeholder, update this with actual data
 
   return (
     <div className="container mx-auto py-2 px-0 md:px-4">
@@ -170,7 +170,7 @@ export default function DashboardPage() {
 
         <Card 
           className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 cursor-pointer"
-          onClick={() => setIsAppointmentModalOpen(true)} // Opens the appointment modal
+          onClick={() => setIsAppointmentModalOpen(true)}
           role="button"
           tabIndex={0}
           aria-label="Book or view upcoming appointments"
@@ -294,7 +294,9 @@ export default function DashboardPage() {
       <AppointmentBookingModal 
         isOpen={isAppointmentModalOpen}
         onClose={() => setIsAppointmentModalOpen(false)}
+        isFirstAppointmentFree={upcomingAppointmentsCount === 0} 
       />
     </div>
   );
 }
+
