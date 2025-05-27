@@ -133,6 +133,20 @@ export function AppointmentBookingModal({ isOpen, onClose }: AppointmentBookingM
       // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 1500));
       console.log("Appointment Data:", data);
+
+      // Defensive check for appointmentDate
+      if (!data.appointmentDate || !(data.appointmentDate instanceof Date) || isNaN(data.appointmentDate.getTime())) {
+          console.error("Invalid or missing appointmentDate in onSubmit before formatting:", data.appointmentDate);
+          toast({
+              title: "Booking Error",
+              description: "The selected appointment date is invalid. Please go back and select a valid date.",
+              variant: "destructive",
+              duration: 7000, 
+          });
+          setIsLoading(false);
+          return; 
+      }
+
       toast({
         title: "Appointment Booked!",
         description: `Your appointment with ${mockDoctors.find(d => d.id === data.doctorId)?.name} on ${format(data.appointmentDate, 'PPP')} at ${data.appointmentTime} is confirmed.`,
@@ -398,5 +412,7 @@ const isToday = (someDate: Date) => {
     someDate.getMonth() === today.getMonth() &&
     someDate.getFullYear() === today.getFullYear();
 };
+
+    
 
     
