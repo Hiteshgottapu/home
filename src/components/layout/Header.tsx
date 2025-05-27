@@ -2,9 +2,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"; // Keep for potential future use or different mobile patterns, but hide trigger
-import { Menu, Bell, UserCircle, Settings } from "lucide-react"; // Added Settings
-import { AppSidebar } from "./Sidebar";
+import { Bell, UserCircle, Settings } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import Link from "next/link";
 import {
@@ -16,24 +14,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AppLogo } from "./AppLogo";
-import { useSidebar } from "@/components/ui/sidebar"; // Import useSidebar
 
 export function AppHeader() {
-  const { userProfile: user, logout } = useAuth(); // Changed user to userProfile
-  const { toggleSidebar } = useSidebar(); // Get toggleSidebar from context
+  const { userProfile: user, logout } = useAuth();
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background/80 px-4 backdrop-blur-sm md:px-6">
-      {/* Hamburger menu for Desktop Sidebar Toggle, hidden on mobile where BottomNav is primary */}
-      <Button variant="outline" size="icon" onClick={toggleSidebar} className="hidden md:inline-flex">
-        <Menu className="h-5 w-5" />
-        <span className="sr-only">Toggle Sidebar</span>
-      </Button>
-      
-      {/* App Logo - visible on mobile when sidebar hamburger is not shown */}
-      <div className="md:hidden">
-        <AppLogo iconSize={28} textSize="text-xl" />
-      </div>
+      <AppLogo iconSize={28} textSize="text-xl" />
 
       <div className="flex w-full items-center justify-end gap-2 md:ml-auto md:gap-2 lg:gap-4">
         <Button variant="ghost" size="icon" className="rounded-full">
