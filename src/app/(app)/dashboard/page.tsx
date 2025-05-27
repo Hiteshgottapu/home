@@ -1,14 +1,15 @@
 
 "use client";
+import { useState } from 'react'; // Added for modal state
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { TrendingUp, Activity, FilePlus, MessageSquareWarning, ShieldCheck, Zap, ListChecks, Lightbulb, BarChartHorizontalBig, Download, CalendarCheck } from 'lucide-react';
+import { TrendingUp, Activity, FilePlus, MessageSquareWarning, ShieldCheck, Zap, ListChecks, Lightbulb, BarChartHorizontalBig, Download, CalendarCheck, Target, Timer } from 'lucide-react'; // Added Target, Timer
 import Link from 'next/link';
 import Image from 'next/image';
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
-
+import { ActiveGoalTaskMenu } from '@/components/dashboard/ActiveGoalTaskMenu'; // Added import
 
 const mockChartData = [
   { month: "Jan", tasks: Math.floor(Math.random() * 20) + 5, goals: Math.floor(Math.random() * 5) + 1 },
@@ -33,6 +34,7 @@ const mockPieData = [
 
 export default function DashboardPage() {
   const { userProfile: user } = useAuth();
+  const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false); // State for the new modal
 
   if (!user) {
     return (
@@ -76,7 +78,13 @@ export default function DashboardPage() {
 
       {/* Key Health Indicators Section */}
       <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105">
+        <Card 
+          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 cursor-pointer"
+          onClick={() => setIsTaskMenuOpen(true)}
+          role="button"
+          tabIndex={0}
+          aria-label="Open active health goals task menu"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Active Health Goals</CardTitle>
             <ListChecks className="h-5 w-5 text-accent" />
@@ -217,7 +225,7 @@ export default function DashboardPage() {
             </Card>
         </section>
       )}
+      <ActiveGoalTaskMenu isOpen={isTaskMenuOpen} onClose={() => setIsTaskMenuOpen(false)} />
     </div>
   );
 }
-
