@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar as CalendarIcon, Clock, UserMd, Stethoscope, MessageCircle, CheckCircle, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, User, Stethoscope, MessageCircle, CheckCircle, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { format, addDays, setHours, setMinutes, isPast, startOfDay } from 'date-fns';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -219,7 +219,7 @@ export function AppointmentBookingModal({ isOpen, onClose }: AppointmentBookingM
 
               <Card className="shadow-md">
                 <CardHeader>
-                  <CardTitle className="text-xl flex items-center gap-2"><UserMd className="text-primary"/>Select Doctor</CardTitle>
+                  <CardTitle className="text-xl flex items-center gap-2"><User className="text-primary"/>Select Doctor</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <Controller
@@ -399,3 +399,4 @@ const isToday = (someDate: Date) => {
     someDate.getFullYear() === today.getFullYear();
 };
 
+    
