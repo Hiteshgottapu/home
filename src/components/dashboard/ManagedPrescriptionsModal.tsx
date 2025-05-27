@@ -4,13 +4,14 @@
 import type { Prescription, MedicationDetail } from '@/types'; // Assuming Prescription type is extended or suitable
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"; // Added CardFooter
 import { ScrollArea } from "@/components/ui/scroll-area";
 import Image from 'next/image';
 import { FileText, CalendarDays, Pill, Thermometer, Repeat, Percent, User, Stethoscope, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import Link from 'next/link'; // Added import for Link
 
 interface ManagedPrescriptionsModalProps {
   isOpen: boolean;
