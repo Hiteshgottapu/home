@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm, SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -11,6 +12,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Loader2, Phone, KeyRound } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { AppLogo } from '@/components/layout/AppLogo';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const OTPSchema = z.object({
   phone: z.string().min(10, "Phone number must be at least 10 digits").regex(/^\+[1-9]\d{1,14}$/, "Enter a valid phone number with country code (e.g., +12223334444)"),
@@ -24,6 +27,11 @@ export function LoginForm() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const { login, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const { register, handleSubmit, formState: { errors, isSubmitting }, watch } = useForm<OTPFormValues>({
     resolver: zodResolver(OTPSchema),
@@ -36,8 +44,6 @@ export function LoginForm() {
   const currentPhone = watch("phone");
 
   const handleSendOtp = () => {
-    // In a real app, you'd call an API to send OTP here.
-    // For this mock, we'll just validate the phone number roughly.
     if (!/^\+[1-9]\d{1,14}$/.test(currentPhone)) {
       toast({
         title: "Invalid Phone Number",
@@ -67,7 +73,6 @@ export function LoginForm() {
         title: "Login Successful",
         description: "Welcome to VitaLog Pro!",
       });
-      // AuthProvider handles navigation
     }
   };
   
@@ -81,58 +86,84 @@ export function LoginForm() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-            {!isOtpSent ? (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <Input 
-                      id="phone" 
-                      type="tel"
-                      placeholder="e.g., +12223334444" 
-                      {...register("phone")}
-                      className="pl-10"
-                    />
+            {isClient ? (
+              <>
+                {!isOtpSent ? (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="phone">Phone Number</Label>
+                      <div className="relative">
+                        <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                        <Input 
+                          id="phone" 
+                          type="tel"
+                          placeholder="e.g., +12223334444" 
+                          {...register("phone")}
+                          className="pl-10"
+                        />
+                      </div>
+                      {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
+                    </div>
+                    <Button 
+                      type="button" 
+                      onClick={handleSendOtp} 
+                      className="w-full" 
+                      disabled={authLoading || isSubmitting}
+                    >
+                      {authLoading || isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Send OTP
+                    </Button>
                   </div>
-                  {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
-                </div>
-                <Button 
-                  type="button" 
-                  onClick={handleSendOtp} 
-                  className="w-full" 
-                  disabled={authLoading || isSubmitting}
-                >
-                  {authLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Send OTP
-                </Button>
-              </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="otp">OTP Code</Label>
+                       <p className="text-sm text-muted-foreground">A 6-digit code has been securely sent to {phoneNumber}. Enter it to continue.</p>
+                      <div className="relative">
+                         <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                        <Input 
+                          id="otp" 
+                          type="text" 
+                          maxLength={6}
+                          placeholder="Enter 6-digit OTP"
+                          {...register("otp")}
+                          className="pl-10 tracking-[0.3em] text-center"
+                        />
+                      </div>
+                      {errors.otp && <p className="text-sm text-destructive">{errors.otp.message}</p>}
+                    </div>
+                    <Button type="submit" className="w-full" disabled={authLoading || isSubmitting}>
+                      {authLoading || isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Verify & Login
+                    </Button>
+                    <Button variant="link" type="button" onClick={() => setIsOtpSent(false)} className="w-full text-primary">
+                      Change Phone Number
+                    </Button>
+                  </div>
+                )}
+              </>
             ) : (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="otp">OTP Code</Label>
-                   <p className="text-sm text-muted-foreground">A 6-digit code has been securely sent to {phoneNumber}. Enter it to continue.</p>
-                  <div className="relative">
-                     <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <Input 
-                      id="otp" 
-                      type="text" 
-                      maxLength={6}
-                      placeholder="Enter 6-digit OTP"
-                      {...register("otp")}
-                      className="pl-10 tracking-[0.3em] text-center"
-                    />
+              <>
+                {!isOtpSent ? (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Skeleton className="h-4 w-1/4 mb-1" /> {/* Label */}
+                      <Skeleton className="h-10 w-full" /> {/* Input */}
+                    </div>
+                    <Skeleton className="h-10 w-full" /> {/* Button */}
                   </div>
-                  {errors.otp && <p className="text-sm text-destructive">{errors.otp.message}</p>}
-                </div>
-                <Button type="submit" className="w-full" disabled={authLoading || isSubmitting}>
-                  {authLoading || isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Verify & Login
-                </Button>
-                <Button variant="link" type="button" onClick={() => setIsOtpSent(false)} className="w-full text-primary">
-                  Change Phone Number
-                </Button>
-              </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Skeleton className="h-4 w-1/4 mb-1" /> {/* Label */}
+                      <Skeleton className="h-4 w-3/4 mb-1" /> {/* Paragraph */}
+                      <Skeleton className="h-10 w-full" /> {/* Input */}
+                    </div>
+                    <Skeleton className="h-10 w-full" /> {/* Button */}
+                    <Skeleton className="h-10 w-full" /> {/* Button */}
+                  </div>
+                )}
+              </>
             )}
           </form>
         </CardContent>
@@ -140,11 +171,3 @@ export function LoginForm() {
     </div>
   );
 }
-
-// Dummy Card components for structure, assuming they exist in ui/card
-const Card = ({ className, children }: { className?: string, children: React.ReactNode }) => <div className={`rounded-lg border bg-card text-card-foreground shadow-sm ${className}`}>{children}</div>;
-const CardHeader = ({ className, children }: { className?: string, children: React.ReactNode }) => <div className={`flex flex-col space-y-1.5 p-6 ${className}`}>{children}</div>;
-const CardTitle = ({ className, children }: { className?: string, children: React.ReactNode }) => <h3 className={`text-2xl font-semibold leading-none tracking-tight ${className}`}>{children}</h3>;
-const CardDescription = ({ className, children }: { className?: string, children: React.ReactNode }) => <p className={`text-sm text-muted-foreground ${className}`}>{children}</p>;
-const CardContent = ({ className, children }: { className?: string, children: React.ReactNode }) => <div className={`p-6 pt-0 ${className}`}>{children}</div>;
-
