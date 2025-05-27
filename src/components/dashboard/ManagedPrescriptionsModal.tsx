@@ -2,9 +2,9 @@
 "use client";
 
 import type { Prescription } from '@/types';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription as ShadCardDescription, DialogFooter, DialogClose } from "@/components/ui/dialog"; // Aliased DialogDescription
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCardDescription, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import Image from 'next/image';
 import { FileText, CalendarDays, Pill, Thermometer, Repeat, Percent, User, Stethoscope, X, Trash2, AlertTriangle } from 'lucide-react';
@@ -59,7 +59,31 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
     }
   };
 
-  if (currentPrescriptions.length === 0 && isOpen) { // Check isOpen to avoid rendering empty state when closed
+  const getStatusVariant = (status?: Prescription['status']) => {
+    if (!status) return 'secondary';
+    switch (status) {
+      case 'verified': return 'default';
+      case 'needs_correction': return 'destructive';
+      case 'pending': return 'secondary';
+      case 'analyzing': return 'outline';
+      case 'error': return 'destructive';
+      default: return 'secondary';
+    }
+  };
+
+   const getStatusText = (status?: Prescription['status']) => {
+    if (!status) return 'Unknown';
+    switch (status) {
+      case 'verified': return 'Verified';
+      case 'needs_correction': return 'Needs Correction';
+      case 'pending': return 'Pending Review';
+      case 'analyzing': return 'Analyzing...';
+      case 'error': return 'Analysis Error';
+      default: return 'Unknown';
+    }
+  };
+  
+  if (currentPrescriptions.length === 0 && isOpen) { 
     return (
       <Dialog open={isOpen} onOpenChange={(open) => { if (!open) { onClose(); setPrescriptionToDelete(null); } }}>
         <DialogContent className="sm:max-w-lg bg-card shadow-xl rounded-lg border-border">
@@ -86,30 +110,6 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
   }
 
 
-  const getStatusVariant = (status?: Prescription['status']) => {
-    if (!status) return 'secondary';
-    switch (status) {
-      case 'verified': return 'default';
-      case 'needs_correction': return 'destructive';
-      case 'pending': return 'secondary';
-      case 'analyzing': return 'outline';
-      case 'error': return 'destructive';
-      default: return 'secondary';
-    }
-  };
-
-   const getStatusText = (status?: Prescription['status']) => {
-    if (!status) return 'Unknown';
-    switch (status) {
-      case 'verified': return 'Verified';
-      case 'needs_correction': return 'Needs Correction';
-      case 'pending': return 'Pending Review';
-      case 'analyzing': return 'Analyzing...';
-      case 'error': return 'Analysis Error';
-      default: return 'Unknown';
-    }
-  };
-
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) { onClose(); setPrescriptionToDelete(null); } }}>
       <DialogContent className="max-w-3xl w-[95vw] md:w-[90vw] h-[90vh] md:h-[85vh] flex flex-col bg-card shadow-2xl rounded-lg border-border">
@@ -118,13 +118,13 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
             <FileText className="h-7 w-7 text-primary" />
             Your Managed Prescriptions
           </DialogTitle>
-          <ShadCardDescription className="text-muted-foreground"> {/* Renamed to avoid conflict */}
+          <ShadCardDescription className="text-muted-foreground">
             Review images and extracted details from your uploaded prescriptions.
           </ShadCardDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-grow p-6 pt-0">
-          <div className="space-y-6 py-6">
+        <ScrollArea className="flex-grow">
+          <div className="p-6 space-y-6">
             {currentPrescriptions.map((prescription, idx) => (
               <Card key={prescription.id || idx} className="overflow-hidden shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-[1.02] group relative">
                 <AlertDialog open={!!prescriptionToDelete && prescriptionToDelete.id === prescription.id} onOpenChange={(open) => !open && setPrescriptionToDelete(null)}>
@@ -136,7 +136,7 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
                       className="absolute top-3 right-3 z-20 h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
                       aria-label="Delete prescription"
                     >
-                      <Trash2 className="h-4.5 w-4.5" />
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
@@ -239,7 +239,7 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
           </div>
         </ScrollArea>
 
-        <DialogFooter className="p-4 border-t border-border sticky bottom-0 bg-card z-10 flex-shrink-0">
+        <DialogFooter className="p-6 border-t border-border sticky bottom-0 bg-card z-10 flex-shrink-0">
           <DialogClose asChild>
             <Button variant="outline" className="w-full sm:w-auto" onClick={() => { onClose(); setPrescriptionToDelete(null); }}>
               <X className="mr-2 h-4 w-4" /> Close
