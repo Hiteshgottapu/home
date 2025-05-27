@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as CardSubDescription } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, MessageSquare, Stethoscope, ClipboardEdit, CalendarDays, UserCircle } from 'lucide-react';
+import { Bot, MessageSquare, Stethoscope, ClipboardEdit, CalendarDays, UserCircle, MessageSquareWarning } from 'lucide-react';
 import { format } from 'date-fns';
 import { Badge } from "../ui/badge";
 
