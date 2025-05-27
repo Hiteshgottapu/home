@@ -12,7 +12,9 @@ import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer, PieCha
 import { ActiveGoalTaskMenu } from '@/components/dashboard/ActiveGoalTaskMenu';
 import { ManagedPrescriptionsModal } from '@/components/dashboard/ManagedPrescriptionsModal';
 import { InteractionLogModal, type MockAiChatEntry, type MockDoctorNoteEntry } from '@/components/dashboard/InteractionLogModal';
-import { AppointmentBookingModal } from '@/components/dashboard/AppointmentBookingModal'; 
+import { AppointmentBookingModal } from '@/components/dashboard/AppointmentBookingModal';
+import { useToast } from "@/hooks/use-toast";
+
 
 const mockChartData = [
   { month: "Jan", tasks: Math.floor(Math.random() * 20) + 5, goals: Math.floor(Math.random() * 5) + 1 },
@@ -72,10 +74,21 @@ const mockDoctorNotes: MockDoctorNoteEntry[] = [
 
 export default function DashboardPage() {
   const { userProfile: user } = useAuth();
+  const { toast } = useToast();
   const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false);
   const [isPrescriptionsModalOpen, setIsPrescriptionsModalOpen] = useState(false);
   const [isInteractionLogModalOpen, setIsInteractionLogModalOpen] = useState(false);
   const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
+  const [upcomingAppointmentsCount, setUpcomingAppointmentsCount] = useState(0);
+
+  const handleBookingSuccess = () => {
+    setUpcomingAppointmentsCount(prevCount => prevCount + 1);
+    // Optional: show a toast confirmation on the dashboard side if needed
+    // toast({
+    //   title: "Appointment Confirmed on Dashboard!",
+    //   description: "Your new appointment is reflected here.",
+    // });
+  };
 
   if (!user) {
     return (
@@ -84,10 +97,10 @@ export default function DashboardPage() {
       </div>
     );
   }
-  
+
   const activeGoalsCount = user.healthGoals.filter(g => g.status === 'in_progress').length;
   const prescriptionsCount = mockDashboardPrescriptions.length;
-  const upcomingAppointmentsCount = 0; // Placeholder, update this with actual data
+
 
   return (
     <div className="container mx-auto py-2 px-0 md:px-4">
@@ -117,7 +130,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <Card 
+        <Card
           className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 cursor-pointer"
           onClick={() => setIsTaskMenuOpen(true)}
           role="button"
@@ -134,7 +147,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card 
+        <Card
           className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 cursor-pointer"
           onClick={() => setIsPrescriptionsModalOpen(true)}
           role="button"
@@ -150,8 +163,8 @@ export default function DashboardPage() {
             <p className="text-xs text-muted-foreground">{prescriptionsCount > 0 ? `View details` : `Awaiting first upload.`}</p>
           </CardContent>
         </Card>
-        
-        <Card 
+
+        <Card
           className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 cursor-pointer"
           onClick={() => setIsInteractionLogModalOpen(true)}
           role="button"
@@ -168,7 +181,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card 
+        <Card
           className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 cursor-pointer"
           onClick={() => setIsAppointmentModalOpen(true)}
           role="button"
@@ -215,7 +228,7 @@ export default function DashboardPage() {
           </Link>
         </div>
       </section>
-      
+
       <section className="mt-8">
         <h2 className="text-xl font-semibold mb-4 text-foreground">Your Progress Overview</h2>
         <div className="grid md:grid-cols-2 gap-6">
@@ -280,10 +293,10 @@ export default function DashboardPage() {
         </section>
       )}
       <ActiveGoalTaskMenu isOpen={isTaskMenuOpen} onClose={() => setIsTaskMenuOpen(false)} />
-      <ManagedPrescriptionsModal 
-        isOpen={isPrescriptionsModalOpen} 
+      <ManagedPrescriptionsModal
+        isOpen={isPrescriptionsModalOpen}
         onClose={() => setIsPrescriptionsModalOpen(false)}
-        prescriptions={mockDashboardPrescriptions} 
+        prescriptions={mockDashboardPrescriptions}
       />
       <InteractionLogModal
         isOpen={isInteractionLogModalOpen}
@@ -291,12 +304,12 @@ export default function DashboardPage() {
         aiChatLogs={mockAiChatLogs}
         doctorNotes={mockDoctorNotes}
       />
-      <AppointmentBookingModal 
+      <AppointmentBookingModal
         isOpen={isAppointmentModalOpen}
         onClose={() => setIsAppointmentModalOpen(false)}
-        isFirstAppointmentFree={upcomingAppointmentsCount === 0} 
+        isFirstAppointmentFree={upcomingAppointmentsCount === 0}
+        onBookingSuccess={handleBookingSuccess}
       />
     </div>
   );
 }
-
