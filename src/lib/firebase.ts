@@ -1,6 +1,8 @@
 
+// Import the functions you need from the SDKs you need
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
+// import { getAnalytics } from "firebase/analytics"; // Analytics can be added if needed
 
 // Explicitly load environment variables
 const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
@@ -11,29 +13,37 @@ const messagingSenderId = process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID;
 const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID;
 const measurementId = process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID; // Optional
 
-// Log the status of critical environment variables
-console.log(
-  "Firebase Initialization Parameters Check (from src/lib/firebase.ts):",
-  `NEXT_PUBLIC_FIREBASE_API_KEY: ${apiKey || 'MISSING/UNDEFINED'}`,
-  `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${authDomain || 'MISSING/UNDEFINED'}`,
-  `NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${projectId || 'MISSING/UNDEFINED'}`
-);
+// --- CRITICAL DEBUGGING STEP ---
+// Please check your browser and server console for the following logs when the app starts.
+// These logs show the Firebase configuration values as loaded from your .env file.
+// If these values are 'MISSING/UNDEFINED' or do not match your Firebase project settings,
+// please check your .env file in the project root and restart your development server.
+console.log("--- Firebase Configuration Check (from src/lib/firebase.ts) ---");
+console.log(`Loaded NEXT_PUBLIC_FIREBASE_API_KEY: ${apiKey ? `"${apiKey}"` : 'MISSING/UNDEFINED'}`);
+console.log(`Loaded NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${authDomain ? `"${authDomain}"` : 'MISSING/UNDEFINED'}`);
+console.log(`Loaded NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${projectId ? `"${projectId}"` : 'MISSING/UNDEFINED'}`);
+console.log("-------------------------------------------------------------");
 
 let app: FirebaseApp | undefined = undefined;
-let authInstance: Auth | undefined = undefined; // Renamed to avoid conflict
+let authInstance: Auth | undefined = undefined;
+// let analytics; // Uncomment if you add getAnalytics
 
 if (!apiKey || !authDomain || !projectId) {
   console.error(
-    'CRITICAL: Firebase core configuration (API Key, Auth Domain, or Project ID) is missing or undefined in environment variables. Firebase will NOT be initialized. ' +
-    'Please ensure ALL of the following are correctly set in your .env file at the project root: ' +
-    '\n - NEXT_PUBLIC_FIREBASE_API_KEY' +
-    '\n - NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN' +
-    '\n - NEXT_PUBLIC_FIREBASE_PROJECT_ID' +
-    '\nAfter saving the .env file, YOU MUST RESTART your Next.js development server for changes to take effect.' +
-    '\nVerify there are no typos or extra spaces in your .env file values.'
+    "CRITICAL FIREBASE INIT ERROR: Essential Firebase configuration (API Key, Auth Domain, or Project ID) is MISSING or UNDEFINED. Firebase will NOT be initialized.\n" +
+    "TROUBLESHOOTING STEPS:\n" +
+    "1. VERIFY the .env file exists in your project's ROOT directory.\n" +
+    "2. CHECK that NEXT_PUBLIC_FIREBASE_API_KEY, NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN, and NEXT_PUBLIC_FIREBASE_PROJECT_ID are correctly set in your .env file.\n" +
+    "   Copy these values directly from your Firebase Project Settings > General > Your apps > Web app > SDK setup and configuration (select 'Config').\n" +
+    "3. ENSURE there are no typos or extra spaces in the .env file's variable names or their values.\n" +
+    "4. **IMPORTANT**: You MUST RESTART your Next.js development server (e.g., stop and rerun `npm run dev`) after any changes to the .env file."
   );
-  // You could throw an error here to completely halt the app if Firebase is non-negotiable
-  // throw new Error("Critical Firebase configuration is missing. Application cannot proceed.");
+} else if (apiKey === "AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXX" || apiKey.startsWith("YOUR_API_KEY") || apiKey.startsWith("PASTE_YOUR")) {
+  console.error(
+    `CRITICAL FIREBASE INIT ERROR: The API Key ("${apiKey}") appears to be a GENERIC PLACEHOLDER.\n` +
+    "Please replace it with your ACTUAL Firebase Web App API Key in the .env file (NEXT_PUBLIC_FIREBASE_API_KEY) and RESTART your server.\n" +
+    "Find your key in: Firebase Console > Project Settings > General > Your apps > Web app > SDK setup and configuration (select 'Config')."
+  );
 } else {
   const firebaseConfig = {
     apiKey: apiKey,
@@ -42,24 +52,30 @@ if (!apiKey || !authDomain || !projectId) {
     storageBucket: storageBucket,
     messagingSenderId: messagingSenderId,
     appId: appId,
-    measurementId: measurementId, // measurementId is optional and can be undefined
+    measurementId: measurementId, // measurementId is optional
   };
+
+  console.log("Attempting to initialize Firebase with the following configuration:", firebaseConfig);
 
   if (!getApps().length) {
     try {
-      console.log("Attempting to initialize Firebase with config:", firebaseConfig);
       app = initializeApp(firebaseConfig);
       authInstance = getAuth(app);
-      console.log("Firebase initialized successfully and auth instance created.");
-    } catch (e) {
-      console.error("Error during Firebase app initialization (initializeApp or getAuth):", e);
+      // analytics = getAnalytics(app); // Uncomment if you add getAnalytics
+      console.log("Firebase app initialized successfully. Auth instance created.");
+    } catch (e: any) {
+      console.error("ERROR DURING FIREBASE INITIALIZATION (initializeApp or getAuth):", e.message);
+      console.error("Firebase config used during failed initialization:", firebaseConfig);
+      console.error("Full error object:", e);
       // app and authInstance will remain undefined
     }
   } else {
     app = getApp();
     authInstance = getAuth(app); // Ensure authInstance is assigned here too
+    // analytics = getAnalytics(app); // Uncomment if you add getAnalytics
     console.log("Existing Firebase app instance retrieved. Auth instance created/retrieved.");
   }
 }
 
-export { app, authInstance as auth }; // Export authInstance as auth
+export { app, authInstance as auth };
+// export { app, authInstance as auth, analytics }; // Uncomment if you add getAnalytics
