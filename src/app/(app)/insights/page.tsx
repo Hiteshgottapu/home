@@ -11,7 +11,7 @@ import { PlusCircle, ListFilter, FileSearch, LayoutGrid, List } from 'lucide-rea
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Image from 'next/image';
-import { Card, CardContent } from '@/components/ui/card'; // Added import
+import { Card, CardContent } from '@/components/ui/card'; // Ensured import
 
 // Mock initial prescriptions
 const initialPrescriptions: Prescription[] = [
