@@ -3,15 +3,22 @@
 import type { UserProfile, HealthGoal, AiFeedbackPreferences } from '@/types';
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { onAuthStateChanged, User as FirebaseUser, signOut, ConfirmationResult, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth'; // Added signInWithPhoneNumber
+import { 
+  onAuthStateChanged, 
+  User as FirebaseUser, 
+  signOut, 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword,
+  updateProfile
+} from 'firebase/auth';
 import { auth } from '@/lib/firebase'; 
 
 interface AuthContextType {
   isAuthenticated: boolean;
   firebaseUser: FirebaseUser | null; 
   userProfile: UserProfile | null; 
-  loginWithPhoneNumber: (phoneNumber: string, appVerifier: RecaptchaVerifier) => Promise<ConfirmationResult | null>;
-  confirmOtp: (confirmationResult: ConfirmationResult, otp: string) => Promise<boolean>;
+  signUpWithEmailPassword: (email: string, password: string, name: string) => Promise<boolean>;
+  loginWithEmailPassword: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   isLoading: boolean;
   updateUserProfileState: (updatedProfileData: Partial<UserProfile>) => void;
@@ -22,8 +29,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const initialMockUserProfileData: Omit<UserProfile, 'id' | 'phoneNumber' | 'email'> = {
-  name: 'New User', 
+const initialMockUserProfileData: Omit<UserProfile, 'id' | 'phoneNumber' | 'email' | 'name'> = {
   dateOfBirth: undefined,
   allergies: [],
   riskFactors: {},
@@ -50,12 +56,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (storedUserProfile) {
           setUserProfile(JSON.parse(storedUserProfile));
         } else {
+          // For new users after signup, or if profile doesn't exist
           const newUserProfile: UserProfile = {
             id: user.uid,
-            phoneNumber: user.phoneNumber || undefined,
             email: user.email || undefined,
+            name: user.displayName || 'New User', // displayName might be set during signup
             ...initialMockUserProfileData,
-            name: user.displayName || user.phoneNumber || 'New User',
           };
           setUserProfile(newUserProfile);
           localStorage.setItem(`vitaLogProUser_${user.uid}`, JSON.stringify(newUserProfile));
@@ -70,39 +76,69 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => unsubscribe();
   }, []);
 
-  const loginWithPhoneNumber = async (phoneNumber: string, appVerifier: RecaptchaVerifier): Promise<ConfirmationResult | null> => {
+  const signUpWithEmailPassword = async (email: string, password: string, name: string): Promise<boolean> => {
     setIsLoading(true);
-    try {
-      // Use signInWithPhoneNumber from firebase/auth directly
-      const confirmationResult = await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
+    if (!auth) {
+      console.error("Auth instance is not available for signup.");
       setIsLoading(false);
-      return confirmationResult;
+      throw new Error("Authentication service not initialized.");
+    }
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      // Update Firebase user profile with name
+      if (userCredential.user) {
+        await updateProfile(userCredential.user, { displayName: name });
+        // Manually create and set local userProfile as onAuthStateChanged might be slightly delayed
+        // or may not pick up displayName immediately for the very first profile creation.
+        const newUserProfile: UserProfile = {
+          id: userCredential.user.uid,
+          email: userCredential.user.email || undefined,
+          name: name,
+          ...initialMockUserProfileData,
+        };
+        setUserProfile(newUserProfile);
+        localStorage.setItem(`vitaLogProUser_${userCredential.user.uid}`, JSON.stringify(newUserProfile));
+        setFirebaseUser(userCredential.user); // Ensure firebaseUser state is also updated
+      }
+      setIsLoading(false);
+      return true;
     } catch (error) {
-      console.error("Error sending OTP:", error);
+      console.error("Error signing up:", error);
       setIsLoading(false);
       throw error; 
     }
   };
-
-  const confirmOtp = async (confirmationResult: ConfirmationResult, otp: string): Promise<boolean> => {
+  
+  const loginWithEmailPassword = async (email: string, password: string): Promise<boolean> => {
     setIsLoading(true);
+    if (!auth) {
+      console.error("Auth instance is not available for login.");
+      setIsLoading(false);
+      throw new Error("Authentication service not initialized.");
+    }
     try {
-      await confirmationResult.confirm(otp);
+      await signInWithEmailAndPassword(auth, email, password);
+      // onAuthStateChanged will handle setting user and profile
       setIsLoading(false);
       return true;
     } catch (error) {
-      console.error("Error confirming OTP:", error);
+      console.error("Error logging in:", error);
       setIsLoading(false);
       throw error;
     }
   };
 
-
   const logout = async () => {
     setIsLoading(true);
+    if (!auth) {
+      console.error("Auth instance is not available for logout.");
+      setIsLoading(false);
+      return;
+    }
     try {
       await signOut(auth);
-      router.push('/auth/login');
+      // onAuthStateChanged will clear user and profile
+      router.push('/auth/login'); // Redirect to login after logout
     } catch (error) {
       console.error("Logout error:", error);
     } finally {
@@ -155,8 +191,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       isAuthenticated: !!firebaseUser, 
       firebaseUser, 
       userProfile, 
-      loginWithPhoneNumber, 
-      confirmOtp,
+      signUpWithEmailPassword,
+      loginWithEmailPassword, 
       logout, 
       isLoading, 
       updateUserProfileState, 
