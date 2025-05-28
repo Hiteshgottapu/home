@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle as ShadCardTitle, CardFooter } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarCheck, BriefcaseMedical, UserDoctor, Clock, Video, PlusCircle, ArrowRight } from 'lucide-react';
+import { CalendarCheck, BriefcaseMedical, User, Clock, Video, PlusCircle, ArrowRight } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import Link from 'next/link';
 
@@ -50,7 +50,7 @@ export function UpcomingAppointmentsViewModal({ isOpen, onClose, appointments, o
                       <BriefcaseMedical size={20} /> {appt.serviceName}
                     </ShadCardTitle>
                     <p className="text-sm text-muted-foreground flex items-center gap-1.5 pt-1">
-                      <UserDoctor size={16} /> With: {appt.doctorName}
+                      <User size={16} /> With: {appt.doctorName}
                     </p>
                   </CardHeader>
                   <CardContent className="p-4 space-y-2">
