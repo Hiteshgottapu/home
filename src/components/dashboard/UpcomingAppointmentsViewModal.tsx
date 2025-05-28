@@ -40,11 +40,14 @@ export function UpcomingAppointmentsViewModal({ isOpen, onClose, appointments, o
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-grow px-6 py-4">
+        <ScrollArea className="flex-grow px-6 py-4"> {/* Consistent padding */}
           {appointments.length > 0 ? (
             <div className="space-y-5">
               {appointments.map(appt => (
-                <Card key={appt.id} className="shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-[1.02] bg-background/70 border-border overflow-hidden group">
+                <Card 
+                  key={appt.id} 
+                  className="shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-[1.02] bg-background/70 border-border overflow-hidden group"
+                >
                   <CardHeader className="p-4 pb-3 bg-muted/30 border-b border-border group-hover:bg-muted/50 transition-colors duration-300">
                     <ShadCardTitle className="text-lg font-semibold text-primary flex items-center gap-2">
                       <BriefcaseMedical size={20} /> {appt.serviceName}
@@ -97,3 +100,4 @@ export function UpcomingAppointmentsViewModal({ isOpen, onClose, appointments, o
     </Dialog>
   );
 }
+
