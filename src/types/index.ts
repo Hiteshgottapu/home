@@ -1,4 +1,5 @@
 
+
 export interface MedicationDetail {
   name: string;
   dosage: string;
@@ -62,6 +63,17 @@ export interface UserProfile {
   emergencyContact?: { name: string, phone: string };
 }
 
+export interface UpcomingAppointment {
+  id: string;
+  serviceName: string;
+  doctorName: string;
+  dateTime: string; // ISO string
+  meetingLink: string;
+  durationMinutes: number;
+}
+
+
 // For AI flow outputs, if they are directly used in components without mapping
 export type { AnalyzeSymptomsOutput } from '@/ai/flows/analyze-symptoms';
 export type { ExtractMedicationDetailsOutput } from '@/ai/flows/extract-medication-details';
+

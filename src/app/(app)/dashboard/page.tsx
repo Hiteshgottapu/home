@@ -1,10 +1,10 @@
 
 "use client";
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { TrendingUp, Activity, FilePlus, MessageSquareWarning, ShieldCheck, Zap, ListChecks, Lightbulb, BarChartHorizontalBig, Download, CalendarCheck, Target, Timer, Eye, Gift } from 'lucide-react';
+import { TrendingUp, Activity, FilePlus, MessageSquareWarning, ShieldCheck, Zap, ListChecks, Lightbulb, BarChartHorizontalBig, Download, CalendarCheck, Target, Timer, Eye, Gift, Briefcase } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
@@ -13,7 +13,10 @@ import { ActiveGoalTaskMenu } from '@/components/dashboard/ActiveGoalTaskMenu';
 import { ManagedPrescriptionsModal } from '@/components/dashboard/ManagedPrescriptionsModal';
 import { InteractionLogModal, type MockAiChatEntry, type MockDoctorNoteEntry } from '@/components/dashboard/InteractionLogModal';
 import { AppointmentBookingModal } from '@/components/dashboard/AppointmentBookingModal';
+import { UpcomingAppointmentsViewModal } from '@/components/dashboard/UpcomingAppointmentsViewModal';
 import { useToast } from "@/hooks/use-toast";
+import type { UpcomingAppointment } from '@/types';
+import { addMinutes, format, subDays } from 'date-fns';
 
 
 const mockChartData = [
@@ -71,6 +74,11 @@ const mockDoctorNotes: MockDoctorNoteEntry[] = [
   { id: 'doc_2', date: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(), doctorName: "Dr. Ben Zhao", note: "Discussed results of recent lab tests. Cholesterol levels slightly elevated. Recommended dietary changes and re-test in 6 weeks.", appointmentId: "appt_456" },
 ];
 
+const initialMockAppointments: UpcomingAppointment[] = [
+  { id: 'appt_001', serviceName: 'General Check-up', doctorName: 'Dr. Emily Carter', dateTime: addMinutes(new Date(), 120).toISOString(), meetingLink: 'https://meet.google.com/placeholder1', durationMinutes: 30 },
+  { id: 'appt_002', serviceName: 'Follow-up Visit', doctorName: 'Dr. Ben Zhao', dateTime: addMinutes(new Date(), 3 * 24 * 60).toISOString(), meetingLink: 'https://zoom.us/j/placeholder2', durationMinutes: 20 },
+];
+
 
 export default function DashboardPage() {
   const { userProfile: user } = useAuth();
@@ -78,17 +86,73 @@ export default function DashboardPage() {
   const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false);
   const [isPrescriptionsModalOpen, setIsPrescriptionsModalOpen] = useState(false);
   const [isInteractionLogModalOpen, setIsInteractionLogModalOpen] = useState(false);
-  const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
-  const [upcomingAppointmentsCount, setUpcomingAppointmentsCount] = useState(0);
+  
+  const [isAppointmentBookingModalOpen, setIsAppointmentBookingModalOpen] = useState(false);
+  const [isAppointmentsViewModalOpen, setIsAppointmentsViewModalOpen] = useState(false);
+  const [upcomingAppointments, setUpcomingAppointments] = useState<UpcomingAppointment[]>(initialMockAppointments);
 
-  const handleBookingSuccess = () => {
-    setUpcomingAppointmentsCount(prevCount => prevCount + 1);
-    // Optional: show a toast confirmation on the dashboard side if needed
-    // toast({
-    //   title: "Appointment Confirmed on Dashboard!",
-    //   description: "Your new appointment is reflected here.",
-    // });
+  const handleBookingSuccess = (newAppointmentData: { serviceId: string; doctorId: string; appointmentDate: Date; appointmentTime: string; notes?: string }) => {
+    // This is where you'd typically save the new appointment to a backend
+    // For this mock, we'll add it to our local state
+    const service = mockServices.find(s => s.id === newAppointmentData.serviceId);
+    const doctor = mockDoctors.find(d => d.id === newAppointmentData.doctorId);
+    
+    if (service && doctor && newAppointmentData.appointmentDate && newAppointmentData.appointmentTime) {
+        const [hours, minutes] = newAppointmentData.appointmentTime.split(':').map(Number);
+        const appointmentDateTime = new Date(newAppointmentData.appointmentDate);
+        appointmentDateTime.setHours(hours, minutes, 0, 0);
+
+        const newAppointment: UpcomingAppointment = {
+            id: `appt_${Date.now()}`,
+            serviceName: service.name,
+            doctorName: doctor.name,
+            dateTime: appointmentDateTime.toISOString(),
+            meetingLink: 'https://meet.google.com/new_placeholder', // Placeholder link
+            durationMinutes: service.duration,
+        };
+        setUpcomingAppointments(prev => [...prev, newAppointment].sort((a,b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()));
+        toast({
+            title: "Appointment Confirmed!",
+            description: `Your appointment for ${service.name} with ${doctor.name} is booked.`,
+        });
+    }
+    setIsAppointmentBookingModalOpen(false); // Close booking modal
+    setIsAppointmentsViewModalOpen(true); // Optionally, re-open the view modal
   };
+
+  const handleOpenBookingModal = () => {
+    setIsAppointmentsViewModalOpen(false); // Close view modal
+    setIsAppointmentBookingModalOpen(true); // Open booking modal
+  };
+  
+  // Mock services and doctors data (could be moved to a separate file or context)
+  const mockServices = [
+    { id: 's1', name: 'General Check-up', duration: 30, relatedSpecialties: ['general', 'family_medicine'] },
+    { id: 's2', name: 'Cardiology Consultation', duration: 45, relatedSpecialties: ['cardiology'] },
+    { id: 's3', name: 'Dermatology Consultation', duration: 45, relatedSpecialties: ['dermatology'] },
+    { id: 's4', name: 'Pediatric Check-up', duration: 30, relatedSpecialties: ['pediatrics'] },
+    { id: 's5', name: 'Neurology Consultation', duration: 50, relatedSpecialties: ['neurology'] },
+    { id: 's6', name: 'Mental Health Counseling', duration: 50, relatedSpecialties: ['psychiatry', 'psychology'] },
+    { id: 's7', name: 'Physical Therapy Session', duration: 60, relatedSpecialties: ['physical_therapy'] },
+    { id: 's8', name: 'Follow-up Visit (General)', duration: 20, relatedSpecialties: ['general', 'family_medicine'] },
+    { id: 's9', name: 'Vaccination Appointment', duration: 15, relatedSpecialties: ['general', 'pediatrics', 'family_medicine'] },
+  ];
+
+  const mockDoctors = [
+    { id: 'd1', name: 'Dr. Emily Carter', specialty: 'general' },
+    { id: 'd2', name: 'Dr. Ben Zhao', specialty: 'cardiology' },
+    { id: 'd3', name: 'Dr. Olivia Chen', specialty: 'pediatrics' },
+    { id: 'd4', name: 'Dr. Samuel Green', specialty: 'dermatology' },
+    { id: 'd5', name: 'Dr. Aisha Khan', specialty: 'neurology' },
+    { id: 'd6', name: 'Dr. Carlos Rivera', specialty: 'family_medicine' },
+    { id: 'd7', name: 'Dr. Sofia Petrova', specialty: 'psychiatry' },
+    { id: 'd8', name: 'Mr. David Lee (PT)', specialty: 'physical_therapy' },
+    { id: 'd9', name: 'Dr. Alice Wonderland', specialty: 'general' },
+    { id: 'd10', name: 'Dr. Bob The Builder', specialty: 'family_medicine'},
+    { id: 'd11', name: 'Dr. Eva Rostova', specialty: 'psychology'},
+    { id: 'd12', name: 'Dr. Ken Adams', specialty: 'cardiology'},
+  ];
+
 
   if (!user) {
     return (
@@ -183,7 +247,7 @@ export default function DashboardPage() {
 
         <Card
           className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 cursor-pointer"
-          onClick={() => setIsAppointmentModalOpen(true)}
+          onClick={() => setIsAppointmentsViewModalOpen(true)}
           role="button"
           tabIndex={0}
           aria-label="Book or view upcoming appointments"
@@ -193,8 +257,8 @@ export default function DashboardPage() {
             <CalendarCheck className="h-5 w-5 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">{upcomingAppointmentsCount}</div>
-            <p className="text-xs text-muted-foreground">{upcomingAppointmentsCount > 0 ? `View appointments` : `Book an appointment`}</p>
+            <div className="text-2xl font-bold text-primary">{upcomingAppointments.length}</div>
+            <p className="text-xs text-muted-foreground">{upcomingAppointments.length > 0 ? `View appointments` : `Book an appointment`}</p>
           </CardContent>
         </Card>
       </div>
@@ -273,20 +337,20 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {activeGoalsCount === 0 && prescriptionsCount === 0 && (
+      {activeGoalsCount === 0 && prescriptionsCount === 0 && upcomingAppointments.length === 0 && (
          <section className="mt-12 text-center">
             <Card className="max-w-lg mx-auto p-8 bg-card shadow-lg">
                 <BarChartHorizontalBig data-ai-hint="health chart" className="h-16 w-16 text-primary mx-auto mb-4" />
                 <h2 className="text-2xl font-semibold mb-2 text-foreground">Welcome to VitaLog Pro!</h2>
                 <p className="text-muted-foreground mb-6">
-                    Your personal health dashboard is ready. Upload your first prescription or check your symptoms to see personalized insights and start your journey to proactive wellness.
+                    Your personal health dashboard is ready. Upload your first prescription, check your symptoms, or book an appointment to see personalized insights and start your journey to proactive wellness.
                 </p>
                 <div className="flex gap-4 justify-center">
                     <Button asChild size="lg">
                         <Link href="/insights#upload">Upload Prescription</Link>
                     </Button>
-                    <Button asChild variant="outline" size="lg">
-                        <Link href="/ai-assistant">Analyze Symptoms</Link>
+                     <Button variant="outline" size="lg" onClick={() => setIsAppointmentsViewModalOpen(true)}>
+                        Book Appointment
                     </Button>
                 </div>
             </Card>
@@ -304,11 +368,20 @@ export default function DashboardPage() {
         aiChatLogs={mockAiChatLogs}
         doctorNotes={mockDoctorNotes}
       />
+      <UpcomingAppointmentsViewModal
+        isOpen={isAppointmentsViewModalOpen}
+        onClose={() => setIsAppointmentsViewModalOpen(false)}
+        appointments={upcomingAppointments}
+        onOpenBookingModal={handleOpenBookingModal}
+      />
       <AppointmentBookingModal
-        isOpen={isAppointmentModalOpen}
-        onClose={() => setIsAppointmentModalOpen(false)}
-        isFirstAppointmentFree={upcomingAppointmentsCount === 0}
+        isOpen={isAppointmentBookingModalOpen}
+        onClose={() => setIsAppointmentBookingModalOpen(false)}
+        isFirstAppointmentFree={upcomingAppointments.length === 0}
         onBookingSuccess={handleBookingSuccess}
+        // Pass mockServices and mockDoctors if they are not defined inside AppointmentBookingModal
+        // If they are defined inside, this is not strictly necessary but doesn't hurt.
+        // For this iteration, assume they are defined within AppointmentBookingModal.
       />
     </div>
   );
