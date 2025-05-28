@@ -8,7 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle as ShadCardTitle, CardFooter }
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CalendarCheck, BriefcaseMedical, User, Clock, Video, PlusCircle, ArrowRight } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
-import Link from 'next/link';
 
 interface UpcomingAppointmentsViewModalProps {
   isOpen: boolean;
@@ -21,10 +20,12 @@ export function UpcomingAppointmentsViewModal({ isOpen, onClose, appointments, o
   if (!isOpen) return null;
 
   const handleJoinMeeting = (link: string) => {
-    // In a real app, this would open the link.
-    // For now, we can log it or open in a new tab.
-    console.log("Attempting to join meeting:", link);
-    window.open(link, '_blank', 'noopener,noreferrer');
+    if (link && (link.startsWith('http://') || link.startsWith('https://'))) {
+        window.open(link, '_blank', 'noopener,noreferrer');
+    } else {
+        console.warn("Invalid or missing meeting link:", link);
+        // Optionally, show a toast to the user
+    }
   };
 
   return (
@@ -40,7 +41,7 @@ export function UpcomingAppointmentsViewModal({ isOpen, onClose, appointments, o
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-grow px-6 py-4"> {/* Consistent padding */}
+        <ScrollArea className="flex-grow px-6 py-4">
           {appointments.length > 0 ? (
             <div className="space-y-5">
               {appointments.map(appt => (
@@ -101,3 +102,4 @@ export function UpcomingAppointmentsViewModal({ isOpen, onClose, appointments, o
   );
 }
 
+    

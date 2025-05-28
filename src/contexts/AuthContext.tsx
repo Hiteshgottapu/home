@@ -1,7 +1,7 @@
 
 "use client";
 import type { UserProfile, HealthGoal, AiFeedbackPreferences } from '@/types';
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   onAuthStateChanged, 
@@ -9,9 +9,10 @@ import {
   signOut, 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword,
-  updateProfile
+  updateProfile as updateFirebaseProfile
 } from 'firebase/auth';
-import { auth } from '@/lib/firebase'; 
+import { auth, db } from '@/lib/firebase'; 
+import { doc, getDoc, setDoc, collection, addDoc, getDocs, updateDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -21,25 +22,20 @@ interface AuthContextType {
   loginWithEmailPassword: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   isLoading: boolean;
-  updateUserProfileState: (updatedProfileData: Partial<UserProfile>) => void;
-  addHealthGoal: (goal: Omit<HealthGoal, 'id'>) => void;
-  updateHealthGoal: (updatedGoal: HealthGoal) => void;
-  updateAiPreferences: (preferences: Partial<AiFeedbackPreferences>) => void;
+  updateUserProfileState: (updatedProfileData: Partial<UserProfile>) => void; // May deprecate if profile fields are managed individually
+  addHealthGoal: (goalData: Omit<HealthGoal, 'id' | 'userId'>) => Promise<HealthGoal | null>;
+  updateHealthGoal: (updatedGoal: HealthGoal) => Promise<void>;
+  deleteHealthGoal: (goalId: string) => Promise<void>;
+  updateAiPreferences: (preferences: Partial<AiFeedbackPreferences>) => Promise<void>;
+  fetchHealthGoals: () => Promise<void>; // To refresh goals
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const initialMockUserProfileData: Omit<UserProfile, 'id' | 'phoneNumber' | 'email' | 'name'> = {
-  dateOfBirth: undefined,
-  allergies: [],
-  riskFactors: {},
-  aiFeedbackPreferences: {
-    symptomExplainabilityLevel: 'brief',
-    nudgeFrequency: 'medium',
-  },
-  healthGoals: [],
+const initialDefaultAiPreferences: AiFeedbackPreferences = {
+  symptomExplainabilityLevel: 'brief',
+  nudgeFrequency: 'medium',
 };
-
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -47,24 +43,67 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
+  const fetchUserProfileData = useCallback(async (user: FirebaseUser) => {
+    if (!db) {
+      console.error("Firestore instance (db) is not available.");
+      return null;
+    }
+    const userDocRef = doc(db, "users", user.uid);
+    const userDocSnap = await getDoc(userDocRef);
+
+    let profileData: UserProfile;
+
+    if (userDocSnap.exists()) {
+      profileData = userDocSnap.data() as UserProfile;
+      // Ensure healthGoals and aiFeedbackPreferences are initialized if not present from DB
+      if (!profileData.healthGoals) profileData.healthGoals = [];
+      if (!profileData.aiFeedbackPreferences) profileData.aiFeedbackPreferences = initialDefaultAiPreferences;
+
+    } else {
+      // Create a new profile in Firestore if it doesn't exist
+      profileData = {
+        id: user.uid,
+        email: user.email || undefined,
+        name: user.displayName || 'New User',
+        healthGoals: [],
+        aiFeedbackPreferences: initialDefaultAiPreferences,
+        // Initialize other fields as needed
+        dateOfBirth: undefined,
+        allergies: [],
+        riskFactors: {},
+      };
+      await setDoc(userDocRef, profileData);
+    }
+    return profileData;
+  }, []);
+  
+  const fetchHealthGoalsForUser = useCallback(async (userId: string): Promise<HealthGoal[]> => {
+    if (!db) {
+      console.error("Firestore instance (db) is not available for fetching goals.");
+      return [];
+    }
+    const goalsColRef = collection(db, `users/${userId}/healthGoals`);
+    const q = query(goalsColRef, orderBy("description")); // Or some other field like a creation timestamp
+    const goalsSnapshot = await getDocs(q);
+    const goals: HealthGoal[] = [];
+    goalsSnapshot.forEach((doc) => {
+      goals.push({ id: doc.id, ...doc.data() } as HealthGoal);
+    });
+    return goals;
+  }, []);
+
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setIsLoading(true);
       if (user) {
         setFirebaseUser(user);
-        const storedUserProfile = localStorage.getItem(`vitaLogProUser_${user.uid}`);
-        if (storedUserProfile) {
-          setUserProfile(JSON.parse(storedUserProfile));
+        const profile = await fetchUserProfileData(user);
+        if (profile) {
+          const healthGoals = await fetchHealthGoalsForUser(user.uid);
+          setUserProfile({ ...profile, healthGoals });
         } else {
-          // For new users after signup, or if profile doesn't exist
-          const newUserProfile: UserProfile = {
-            id: user.uid,
-            email: user.email || undefined,
-            name: user.displayName || 'New User', // displayName might be set during signup
-            ...initialMockUserProfileData,
-          };
-          setUserProfile(newUserProfile);
-          localStorage.setItem(`vitaLogProUser_${user.uid}`, JSON.stringify(newUserProfile));
+          setUserProfile(null); // Should not happen if fetchUserProfileData creates one
         }
       } else {
         setFirebaseUser(null);
@@ -72,33 +111,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
       setIsLoading(false);
     });
-
     return () => unsubscribe();
-  }, []);
+  }, [fetchUserProfileData, fetchHealthGoalsForUser]);
 
   const signUpWithEmailPassword = async (email: string, password: string, name: string): Promise<boolean> => {
     setIsLoading(true);
-    if (!auth) {
-      console.error("Auth instance is not available for signup.");
-      setIsLoading(false);
-      throw new Error("Authentication service not initialized.");
-    }
+    if (!auth || !db) throw new Error("Auth or DB not initialized");
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      // Update Firebase user profile with name
       if (userCredential.user) {
-        await updateProfile(userCredential.user, { displayName: name });
-        // Manually create and set local userProfile as onAuthStateChanged might be slightly delayed
-        // or may not pick up displayName immediately for the very first profile creation.
-        const newUserProfile: UserProfile = {
-          id: userCredential.user.uid,
-          email: userCredential.user.email || undefined,
-          name: name,
-          ...initialMockUserProfileData,
-        };
-        setUserProfile(newUserProfile);
-        localStorage.setItem(`vitaLogProUser_${userCredential.user.uid}`, JSON.stringify(newUserProfile));
-        setFirebaseUser(userCredential.user); // Ensure firebaseUser state is also updated
+        await updateFirebaseProfile(userCredential.user, { displayName: name });
+        // The onAuthStateChanged listener will handle fetching/creating the profile
       }
       setIsLoading(false);
       return true;
@@ -111,11 +134,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   
   const loginWithEmailPassword = async (email: string, password: string): Promise<boolean> => {
     setIsLoading(true);
-    if (!auth) {
-      console.error("Auth instance is not available for login.");
-      setIsLoading(false);
-      throw new Error("Authentication service not initialized.");
-    }
+    if (!auth) throw new Error("Auth not initialized");
     try {
       await signInWithEmailAndPassword(auth, email, password);
       // onAuthStateChanged will handle setting user and profile
@@ -130,15 +149,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = async () => {
     setIsLoading(true);
-    if (!auth) {
-      console.error("Auth instance is not available for logout.");
-      setIsLoading(false);
-      return;
-    }
+    if (!auth) return;
     try {
       await signOut(auth);
-      // onAuthStateChanged will clear user and profile
-      router.push('/auth/login'); // Redirect to login after logout
+      router.push('/auth/login'); 
     } catch (error) {
       console.error("Logout error:", error);
     } finally {
@@ -146,45 +160,100 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
   
-  const updateUserProfileState = (updatedProfileData: Partial<UserProfile>) => {
-    setUserProfile(prevUserProfile => {
-      if (!prevUserProfile || !firebaseUser) return null;
-      const newUserProfile = { ...prevUserProfile, ...updatedProfileData };
-      localStorage.setItem(`vitaLogProUser_${firebaseUser.uid}`, JSON.stringify(newUserProfile));
-      return newUserProfile;
-    });
+  const updateUserProfileState = async (updatedProfileData: Partial<UserProfile>) => {
+    if (!firebaseUser || !db || !userProfile) return;
+    setIsLoading(true);
+    try {
+      const userDocRef = doc(db, "users", firebaseUser.uid);
+      // We only update fields that are directly on the user profile doc, not subcollections like healthGoals
+      const { healthGoals, ...profileToUpdate } = updatedProfileData; // Exclude healthGoals
+      await updateDoc(userDocRef, profileToUpdate);
+      setUserProfile(prev => prev ? { ...prev, ...profileToUpdate } : null);
+    } catch (error) {
+      console.error("Error updating user profile in Firestore:", error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const addHealthGoal = (goal: Omit<HealthGoal, 'id'>) => {
-    setUserProfile(prevUserProfile => {
-      if (!prevUserProfile || !firebaseUser) return null;
-      const newGoal = { ...goal, id: `goal${Date.now()}` };
-      const updatedGoals = [...prevUserProfile.healthGoals, newGoal];
-      const newUserProfile = { ...prevUserProfile, healthGoals: updatedGoals };
-      localStorage.setItem(`vitaLogProUser_${firebaseUser.uid}`, JSON.stringify(newUserProfile));
-      return newUserProfile;
-    });
+  const addHealthGoal = async (goalData: Omit<HealthGoal, 'id' | 'userId'>): Promise<HealthGoal | null> => {
+    if (!firebaseUser || !db) return null;
+    setIsLoading(true);
+    try {
+      const goalsColRef = collection(db, `users/${firebaseUser.uid}/healthGoals`);
+      const newGoalData = { ...goalData, userId: firebaseUser.uid };
+      const docRef = await addDoc(goalsColRef, newGoalData);
+      const newGoal = { id: docRef.id, ...newGoalData };
+      setUserProfile(prev => prev ? { ...prev, healthGoals: [...prev.healthGoals, newGoal] } : null);
+      return newGoal;
+    } catch (error) {
+      console.error("Error adding health goal:", error);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
   };
   
-  const updateHealthGoal = (updatedGoal: HealthGoal) => {
-    setUserProfile(prevUserProfile => {
-      if (!prevUserProfile || !firebaseUser) return null;
-      const updatedGoals = prevUserProfile.healthGoals.map(g => g.id === updatedGoal.id ? updatedGoal : g);
-      const newUserProfile = { ...prevUserProfile, healthGoals: updatedGoals };
-      localStorage.setItem(`vitaLogProUser_${firebaseUser.uid}`, JSON.stringify(newUserProfile));
-      return newUserProfile;
-    });
+  const updateHealthGoal = async (updatedGoal: HealthGoal) => {
+    if (!firebaseUser || !db || !updatedGoal.id) return;
+    setIsLoading(true);
+    try {
+      const goalDocRef = doc(db, `users/${firebaseUser.uid}/healthGoals`, updatedGoal.id);
+      const { id, userId, ...dataToUpdate } = updatedGoal; // Don't store id/userId inside the doc itself again if not needed
+      await updateDoc(goalDocRef, dataToUpdate);
+      setUserProfile(prev => {
+        if (!prev) return null;
+        const updatedGoals = prev.healthGoals.map(g => g.id === updatedGoal.id ? updatedGoal : g);
+        return { ...prev, healthGoals: updatedGoals };
+      });
+    } catch (error) {
+      console.error("Error updating health goal:", error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const updateAiPreferences = (preferences: Partial<AiFeedbackPreferences>) => {
-    setUserProfile(prevUserProfile => {
-      if(!prevUserProfile || !firebaseUser) return null;
-      const newPreferences = { ...(prevUserProfile.aiFeedbackPreferences || initialMockUserProfileData.aiFeedbackPreferences), ...preferences };
-      const newUserProfile = { ...prevUserProfile, aiFeedbackPreferences: newPreferences };
-      localStorage.setItem(`vitaLogProUser_${firebaseUser.uid}`, JSON.stringify(newUserProfile));
-      return newUserProfile;
-    });
+  const deleteHealthGoal = async (goalId: string) => {
+    if (!firebaseUser || !db) return;
+    setIsLoading(true);
+    try {
+        const goalDocRef = doc(db, `users/${firebaseUser.uid}/healthGoals`, goalId);
+        await deleteDoc(goalDocRef);
+        setUserProfile(prev => {
+            if (!prev) return null;
+            const updatedGoals = prev.healthGoals.filter(g => g.id !== goalId);
+            return { ...prev, healthGoals: updatedGoals };
+        });
+    } catch (error) {
+        console.error("Error deleting health goal:", error);
+    } finally {
+        setIsLoading(false);
+    }
   };
+
+  const updateAiPreferences = async (preferences: Partial<AiFeedbackPreferences>) => {
+    if (!firebaseUser || !db || !userProfile) return;
+    setIsLoading(true);
+    try {
+      const userDocRef = doc(db, "users", firebaseUser.uid);
+      const newAiPreferences = { ...(userProfile.aiFeedbackPreferences || initialDefaultAiPreferences), ...preferences };
+      await updateDoc(userDocRef, { aiFeedbackPreferences: newAiPreferences });
+      setUserProfile(prev => prev ? { ...prev, aiFeedbackPreferences: newAiPreferences } : null);
+    } catch (error) {
+      console.error("Error updating AI preferences:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  const fetchHealthGoals = useCallback(async () => {
+    if (!firebaseUser || !userProfile) return;
+    setIsLoading(true);
+    const goals = await fetchHealthGoalsForUser(firebaseUser.uid);
+    setUserProfile(prev => prev ? { ...prev, healthGoals: goals } : null);
+    setIsLoading(false);
+  }, [firebaseUser, userProfile, fetchHealthGoalsForUser]);
+
 
   return (
     <AuthContext.Provider value={{ 
@@ -198,7 +267,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       updateUserProfileState, 
       addHealthGoal, 
       updateHealthGoal, 
-      updateAiPreferences 
+      deleteHealthGoal,
+      updateAiPreferences,
+      fetchHealthGoals
     }}>
       {children}
     </AuthContext.Provider>
@@ -212,3 +283,5 @@ export const useAuth = () => {
   }
   return context;
 };
+
+    

@@ -4,19 +4,21 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { TrendingUp, Activity, FilePlus, MessageSquareWarning, ShieldCheck, Zap, ListChecks, Lightbulb, BarChartHorizontalBig, Download, CalendarCheck, Target, Timer, Eye, Gift, Briefcase } from 'lucide-react';
+import { TrendingUp, Activity, FilePlus, MessageSquareWarning, ShieldCheck, Zap, ListChecks, Lightbulb, BarChartHorizontalBig, Download, CalendarCheck, Target, Timer, Eye, Gift, Briefcase, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
 import { ActiveGoalTaskMenu } from '@/components/dashboard/ActiveGoalTaskMenu';
 import { ManagedPrescriptionsModal } from '@/components/dashboard/ManagedPrescriptionsModal';
-import { InteractionLogModal, type MockAiChatEntry, type MockDoctorNoteEntry } from '@/components/dashboard/InteractionLogModal';
+import { InteractionLogModal } from '@/components/dashboard/InteractionLogModal';
+import type { DoctorNote, Prescription, UpcomingAppointment } from '@/types'; // Added DoctorNote, Prescription
 import { AppointmentBookingModal } from '@/components/dashboard/AppointmentBookingModal';
 import { UpcomingAppointmentsViewModal } from '@/components/dashboard/UpcomingAppointmentsViewModal';
 import { useToast } from "@/hooks/use-toast";
-import type { UpcomingAppointment } from '@/types';
 import { addMinutes, format, subDays } from 'date-fns';
+import { db } from '@/lib/firebase';
+import { collection, query, orderBy, getDocs, onSnapshot, Unsubscribe } from 'firebase/firestore';
 
 
 const mockChartData = [
@@ -39,49 +41,15 @@ const mockPieData = [
   { name: 'Pending', value: 2, fill: 'hsl(var(--muted))' },
 ];
 
-const mockDashboardPrescriptions = [
-  {
-    id: 'dash_pres_1',
-    fileName: 'Initial_Amoxicillin_Rx.pdf',
-    uploadDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    status: 'verified' as const,
-    extractedMedications: [{ name: 'Amoxicillin', dosage: '500mg', frequency: 'Twice daily' }],
-    ocrConfidence: 0.95,
-    imageUrl: 'https://placehold.co/400x500.png',
-    patientName: 'Alex Ryder',
-    doctor: 'Dr. Emily Carter'
-  },
-  {
-    id: 'dash_pres_2',
-    fileName: 'FollowUp_Lisinopril.jpg',
-    uploadDate: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
-    status: 'needs_correction' as const,
-    extractedMedications: [{ name: 'Lisinopril', dosage: '10mg', frequency: 'Once daily (Morning)' }, { name: 'Metformin', dosage: '500mg', frequency: 'Twice daily with meals'}],
-    ocrConfidence: 0.78,
-    imageUrl: 'https://placehold.co/400x550.png',
-    patientName: 'Alex Ryder',
-    doctor: 'Dr. Ben Zhao'
-  },
-];
-
-const mockAiChatLogs: MockAiChatEntry[] = [
+// AI Chat logs can remain mock for now as their persistence is more complex
+const mockAiChatLogs = [
   { id: 'ai_1', timestamp: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(), userQuery: "I've had a persistent cough and mild fever for 3 days.", aiResponse: "Based on your symptoms, potential conditions include a common cold or flu. It's advisable to monitor your symptoms and rest. If they worsen, please consult a doctor." },
   { id: 'ai_2', timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), userQuery: "What are some good exercises for lower back pain?", aiResponse: "Gentle stretches like pelvic tilts and knee-to-chest stretches can be beneficial. Avoid strenuous activities and consult a physical therapist for a personalized plan." },
 ];
 
-const mockDoctorNotes: MockDoctorNoteEntry[] = [
-  { id: 'doc_1', date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), doctorName: "Dr. Emily Carter", note: "Follow-up on blood pressure. Medication seems effective. Advised to continue current dosage and monitor diet. Next check-up in 3 months.", appointmentId: "appt_123" },
-  { id: 'doc_2', date: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(), doctorName: "Dr. Ben Zhao", note: "Discussed results of recent lab tests. Cholesterol levels slightly elevated. Recommended dietary changes and re-test in 6 weeks.", appointmentId: "appt_456" },
-];
-
-const initialMockAppointments: UpcomingAppointment[] = [
-  { id: 'appt_001', serviceName: 'General Check-up', doctorName: 'Dr. Emily Carter', dateTime: addMinutes(new Date(), 120).toISOString(), meetingLink: 'https://meet.google.com/placeholder1', durationMinutes: 30 },
-  { id: 'appt_002', serviceName: 'Follow-up Visit', doctorName: 'Dr. Ben Zhao', dateTime: addMinutes(new Date(), 3 * 24 * 60).toISOString(), meetingLink: 'https://zoom.us/j/placeholder2', durationMinutes: 20 },
-];
-
 
 export default function DashboardPage() {
-  const { userProfile: user } = useAuth();
+  const { userProfile, firebaseUser, isLoading: authIsLoading } = useAuth();
   const { toast } = useToast();
   const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false);
   const [isPrescriptionsModalOpen, setIsPrescriptionsModalOpen] = useState(false);
@@ -89,88 +57,105 @@ export default function DashboardPage() {
   
   const [isAppointmentBookingModalOpen, setIsAppointmentBookingModalOpen] = useState(false);
   const [isAppointmentsViewModalOpen, setIsAppointmentsViewModalOpen] = useState(false);
-  const [upcomingAppointments, setUpcomingAppointments] = useState<UpcomingAppointment[]>(initialMockAppointments);
+  
+  const [upcomingAppointments, setUpcomingAppointments] = useState<UpcomingAppointment[]>([]);
+  const [managedPrescriptions, setManagedPrescriptions] = useState<Prescription[]>([]);
+  const [doctorNotes, setDoctorNotes] = useState<DoctorNote[]>([]);
+  const [dataLoading, setDataLoading] = useState(true);
 
-  const handleBookingSuccess = (newAppointmentData: { serviceId: string; doctorId: string; appointmentDate: Date; appointmentTime: string; notes?: string }) => {
-    // This is where you'd typically save the new appointment to a backend
-    // For this mock, we'll add it to our local state
-    const service = mockServices.find(s => s.id === newAppointmentData.serviceId);
-    const doctor = mockDoctors.find(d => d.id === newAppointmentData.doctorId);
-    
-    if (service && doctor && newAppointmentData.appointmentDate && newAppointmentData.appointmentTime) {
-        const [hours, minutes] = newAppointmentData.appointmentTime.split(':').map(Number);
-        const appointmentDateTime = new Date(newAppointmentData.appointmentDate);
-        appointmentDateTime.setHours(hours, minutes, 0, 0);
-
-        const newAppointment: UpcomingAppointment = {
-            id: `appt_${Date.now()}`,
-            serviceName: service.name,
-            doctorName: doctor.name,
-            dateTime: appointmentDateTime.toISOString(),
-            meetingLink: 'https://meet.google.com/new_placeholder', // Placeholder link
-            durationMinutes: service.duration,
-        };
-        setUpcomingAppointments(prev => [...prev, newAppointment].sort((a,b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()));
-        toast({
-            title: "Appointment Confirmed!",
-            description: `Your appointment for ${service.name} with ${doctor.name} is booked.`,
-        });
+  useEffect(() => {
+    if (!firebaseUser || !db) {
+        if (!authIsLoading) setDataLoading(false); // If auth is done loading and no user, stop data loading
+        return;
     }
-    setIsAppointmentBookingModalOpen(false); // Close booking modal
-    setIsAppointmentsViewModalOpen(true); // Optionally, re-open the view modal
+    setDataLoading(true);
+    const unsubscribes: Unsubscribe[] = [];
+
+    // Fetch Upcoming Appointments
+    const appointmentsQuery = query(collection(db, `users/${firebaseUser.uid}/appointments`), orderBy("dateTime", "asc"));
+    unsubscribes.push(onSnapshot(appointmentsQuery, (snapshot) => {
+        const appts: UpcomingAppointment[] = [];
+        snapshot.forEach(doc => appts.push({ id: doc.id, ...doc.data() } as UpcomingAppointment));
+        setUpcomingAppointments(appts);
+    }, (error) => {
+        console.error("Error fetching appointments:", error);
+        toast({ title: "Error", description: "Could not fetch appointments.", variant: "destructive" });
+    }));
+
+    // Fetch Managed Prescriptions
+    const prescriptionsQuery = query(collection(db, `users/${firebaseUser.uid}/prescriptions`), orderBy("uploadDate", "desc"));
+    unsubscribes.push(onSnapshot(prescriptionsQuery, (snapshot) => {
+        const scripts: Prescription[] = [];
+        snapshot.forEach(doc => scripts.push({ id: doc.id, ...doc.data() } as Prescription));
+        setManagedPrescriptions(scripts);
+    }, (error) => {
+        console.error("Error fetching prescriptions:", error);
+        toast({ title: "Error", description: "Could not fetch prescriptions.", variant: "destructive" });
+    }));
+
+    // Fetch Doctor Notes
+    const notesQuery = query(collection(db, `users/${firebaseUser.uid}/doctorNotes`), orderBy("date", "desc"));
+    unsubscribes.push(onSnapshot(notesQuery, (snapshot) => {
+        const notes: DoctorNote[] = [];
+        snapshot.forEach(doc => notes.push({ id: doc.id, ...doc.data() } as DoctorNote));
+        setDoctorNotes(notes);
+    }, (error) => {
+        console.error("Error fetching doctor notes:", error);
+        toast({ title: "Error", description: "Could not fetch doctor notes.", variant: "destructive" });
+    }));
+    
+    // After setting up all listeners, if initial fetches are done (or even before, if snapshots update quickly)
+    // we can consider loading complete. A more robust way might involve Promise.all for initial getDocs.
+    setDataLoading(false); 
+
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [firebaseUser, authIsLoading, toast]);
+
+
+  const handleBookingSuccess = (newAppointment: UpcomingAppointment) => {
+    // No need to manually add here if onSnapshot is working for appointments
+    // setUpcomingAppointments(prev => [...prev, newAppointment].sort((a,b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()));
+    toast({
+        title: "Appointment Confirmed!",
+        description: `Your appointment for ${newAppointment.serviceName} with ${newAppointment.doctorName} is booked.`,
+    });
+    setIsAppointmentBookingModalOpen(false);
+    setIsAppointmentsViewModalOpen(true); 
   };
 
   const handleOpenBookingModal = () => {
-    setIsAppointmentsViewModalOpen(false); // Close view modal
-    setIsAppointmentBookingModalOpen(true); // Open booking modal
+    setIsAppointmentsViewModalOpen(false); 
+    setIsAppointmentBookingModalOpen(true); 
   };
   
-  // Mock services and doctors data (could be moved to a separate file or context)
-  const mockServices = [
-    { id: 's1', name: 'General Check-up', duration: 30, relatedSpecialties: ['general', 'family_medicine'] },
-    { id: 's2', name: 'Cardiology Consultation', duration: 45, relatedSpecialties: ['cardiology'] },
-    { id: 's3', name: 'Dermatology Consultation', duration: 45, relatedSpecialties: ['dermatology'] },
-    { id: 's4', name: 'Pediatric Check-up', duration: 30, relatedSpecialties: ['pediatrics'] },
-    { id: 's5', name: 'Neurology Consultation', duration: 50, relatedSpecialties: ['neurology'] },
-    { id: 's6', name: 'Mental Health Counseling', duration: 50, relatedSpecialties: ['psychiatry', 'psychology'] },
-    { id: 's7', name: 'Physical Therapy Session', duration: 60, relatedSpecialties: ['physical_therapy'] },
-    { id: 's8', name: 'Follow-up Visit (General)', duration: 20, relatedSpecialties: ['general', 'family_medicine'] },
-    { id: 's9', name: 'Vaccination Appointment', duration: 15, relatedSpecialties: ['general', 'pediatrics', 'family_medicine'] },
-  ];
-
-  const mockDoctors = [
-    { id: 'd1', name: 'Dr. Emily Carter', specialty: 'general' },
-    { id: 'd2', name: 'Dr. Ben Zhao', specialty: 'cardiology' },
-    { id: 'd3', name: 'Dr. Olivia Chen', specialty: 'pediatrics' },
-    { id: 'd4', name: 'Dr. Samuel Green', specialty: 'dermatology' },
-    { id: 'd5', name: 'Dr. Aisha Khan', specialty: 'neurology' },
-    { id: 'd6', name: 'Dr. Carlos Rivera', specialty: 'family_medicine' },
-    { id: 'd7', name: 'Dr. Sofia Petrova', specialty: 'psychiatry' },
-    { id: 'd8', name: 'Mr. David Lee (PT)', specialty: 'physical_therapy' },
-    { id: 'd9', name: 'Dr. Alice Wonderland', specialty: 'general' },
-    { id: 'd10', name: 'Dr. Bob The Builder', specialty: 'family_medicine'},
-    { id: 'd11', name: 'Dr. Eva Rostova', specialty: 'psychology'},
-    { id: 'd12', name: 'Dr. Ken Adams', specialty: 'cardiology'},
-  ];
-
-
-  if (!user) {
+  if (authIsLoading || dataLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <p>Loading user data...</p>
+      <div className="flex h-[calc(100vh-10rem)] items-center justify-center">
+        <Loader2 className="h-16 w-16 animate-spin text-primary" />
+        <p className="ml-3 text-muted-foreground">Loading dashboard data...</p>
       </div>
     );
   }
 
-  const activeGoalsCount = user.healthGoals.filter(g => g.status === 'in_progress').length;
-  const prescriptionsCount = mockDashboardPrescriptions.length;
+  if (!userProfile) {
+    // This case should ideally be handled by the AppLayout redirecting to login
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p>User profile not found. Please try logging in again.</p>
+      </div>
+    );
+  }
+
+  const activeGoalsCount = userProfile.healthGoals.filter(g => g.status === 'in_progress').length;
+  const prescriptionsCount = managedPrescriptions.length;
+  const interactionLogsCount = mockAiChatLogs.length + doctorNotes.length;
 
 
   return (
     <div className="container mx-auto py-2 px-0 md:px-4">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground">
-          Hello, {user.name} 👋
+          Hello, {userProfile.name} 👋
         </h1>
         <p className="text-muted-foreground">Let's take charge of your well-being today.</p>
       </div>
@@ -240,7 +225,7 @@ export default function DashboardPage() {
             <MessageSquareWarning className="h-5 w-5 text-destructive" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-destructive">{mockAiChatLogs.length + mockDoctorNotes.length}</div>
+            <div className="text-2xl font-bold text-destructive">{interactionLogsCount}</div>
             <p className="text-xs text-muted-foreground">View AI chats & doctor notes.</p>
           </CardContent>
         </Card>
@@ -360,18 +345,18 @@ export default function DashboardPage() {
       <ManagedPrescriptionsModal
         isOpen={isPrescriptionsModalOpen}
         onClose={() => setIsPrescriptionsModalOpen(false)}
-        prescriptions={mockDashboardPrescriptions}
+        prescriptions={managedPrescriptions} // Pass fetched prescriptions
       />
       <InteractionLogModal
         isOpen={isInteractionLogModalOpen}
         onClose={() => setIsInteractionLogModalOpen(false)}
-        aiChatLogs={mockAiChatLogs}
-        doctorNotes={mockDoctorNotes}
+        aiChatLogs={mockAiChatLogs} // AI chats are still mock
+        doctorNotes={doctorNotes} // Pass fetched doctor notes
       />
       <UpcomingAppointmentsViewModal
         isOpen={isAppointmentsViewModalOpen}
         onClose={() => setIsAppointmentsViewModalOpen(false)}
-        appointments={upcomingAppointments}
+        appointments={upcomingAppointments} // Pass fetched appointments
         onOpenBookingModal={handleOpenBookingModal}
       />
       <AppointmentBookingModal
@@ -379,10 +364,9 @@ export default function DashboardPage() {
         onClose={() => setIsAppointmentBookingModalOpen(false)}
         isFirstAppointmentFree={upcomingAppointments.length === 0}
         onBookingSuccess={handleBookingSuccess}
-        // Pass mockServices and mockDoctors if they are not defined inside AppointmentBookingModal
-        // If they are defined inside, this is not strictly necessary but doesn't hurt.
-        // For this iteration, assume they are defined within AppointmentBookingModal.
       />
     </div>
   );
 }
+
+    

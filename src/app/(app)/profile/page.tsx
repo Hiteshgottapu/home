@@ -1,42 +1,51 @@
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { UserCog, ShieldCheck, Target, BellRing, PlusCircle, Edit3, Download, LogOut, Trash2 } from 'lucide-react';
+import { UserCog, ShieldCheck, Target, BellRing, PlusCircle, Edit3, Download, LogOut, Trash2, Loader2 } from 'lucide-react';
 import { HealthGoalItem } from '@/components/profile/HealthGoalItem';
 import { HealthGoalModal } from '@/components/profile/HealthGoalModal';
 import type { HealthGoal, AiFeedbackPreferences } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
-
 export default function ProfilePage() {
-  const { userProfile: user, updateUserProfileState: updateUserProfile, addHealthGoal, updateHealthGoal: authUpdateHealthGoal, updateAiPreferences, logout } = useAuth();
+  const { userProfile, addHealthGoal, updateHealthGoal, deleteHealthGoal: authDeleteHealthGoal, updateAiPreferences, logout, isLoading: authIsLoading, fetchHealthGoals } = useAuth();
   const { toast } = useToast();
 
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<HealthGoal | null>(null);
-  
-  // Editable AI preferences:
-  const [currentAiPreferences, setCurrentAiPreferences] = useState<AiFeedbackPreferences | undefined>(user?.aiFeedbackPreferences);
+  const [currentAiPreferences, setCurrentAiPreferences] = useState<AiFeedbackPreferences | undefined>(userProfile?.aiFeedbackPreferences);
+  const [pageLoading, setPageLoading] = useState(true);
 
-  if (!user) {
-    return <p>Loading profile...</p>;
-  }
+  useEffect(() => {
+    if (userProfile) {
+        setCurrentAiPreferences(userProfile.aiFeedbackPreferences);
+        setPageLoading(authIsLoading); // Reflect auth loading state
+    } else if (!authIsLoading) { // if userProfile is null and auth is not loading, implies no user
+        setPageLoading(false);
+    }
+  }, [userProfile, authIsLoading]);
 
-  const handleSaveGoal = (goalData: Omit<HealthGoal, 'id'> | HealthGoal) => {
-    if ('id' in goalData) { // Editing existing goal
-      authUpdateHealthGoal(goalData);
-      toast({ title: "Goal Updated", description: `"${goalData.description}" has been updated.` });
-    } else { // Adding new goal
-      addHealthGoal(goalData);
-      toast({ title: "Goal Added", description: `New goal "${goalData.description}" created.` });
+  const handleSaveGoal = async (goalData: Omit<HealthGoal, 'id' | 'userId'> | HealthGoal) => {
+    try {
+      if ('id' in goalData) { // Editing existing goal
+        await updateHealthGoal(goalData);
+        toast({ title: "Goal Updated", description: `"${goalData.description}" has been updated.` });
+      } else { // Adding new goal
+        await addHealthGoal(goalData);
+        toast({ title: "Goal Added", description: `New goal "${goalData.description}" created.` });
+      }
+      // await fetchHealthGoals(); // Refresh goals list from Firestore
+    } catch (error) {
+      console.error("Error saving goal:", error);
+      toast({ title: "Error Saving Goal", description: "Could not save your health goal.", variant: "destructive"});
     }
     setIsGoalModalOpen(false);
     setEditingGoal(null);
@@ -47,28 +56,50 @@ export default function ProfilePage() {
     setIsGoalModalOpen(true);
   };
 
-  const handleDeleteGoal = (goalId: string) => {
-    const updatedGoals = user.healthGoals.filter(g => g.id !== goalId);
-    updateUserProfile({ healthGoals: updatedGoals }); 
-    toast({ title: "Goal Deleted", variant: "destructive" });
+  const handleDeleteGoal = async (goalId: string) => {
+    try {
+      await authDeleteHealthGoal(goalId);
+      toast({ title: "Goal Deleted", variant: "destructive" });
+      // await fetchHealthGoals(); // Refresh goals list from Firestore
+    } catch (error) {
+      console.error("Error deleting goal:", error);
+      toast({ title: "Error Deleting Goal", description: "Could not delete your health goal.", variant: "destructive"});
+    }
   };
   
-  const handleAiPreferenceChange = (key: keyof AiFeedbackPreferences, value: string) => {
-    if (user && currentAiPreferences) { // Ensure user is defined
+  const handleAiPreferenceChange = async (key: keyof AiFeedbackPreferences, value: string) => {
+    if (userProfile && currentAiPreferences) {
         const newPrefs = {...currentAiPreferences, [key]: value};
-        setCurrentAiPreferences(newPrefs);
-        updateAiPreferences(newPrefs); 
-        toast({ title: "AI Preferences Updated" });
+        setCurrentAiPreferences(newPrefs); // Optimistic UI update
+        try {
+            await updateAiPreferences(newPrefs); 
+            toast({ title: "AI Preferences Updated" });
+        } catch (error) {
+            console.error("Error updating AI preferences:", error);
+            toast({ title: "Update Failed", description: "Could not save AI preferences.", variant: "destructive"});
+            // Revert optimistic update if needed, or refetch
+            setCurrentAiPreferences(userProfile.aiFeedbackPreferences);
+        }
     }
   };
   
-  // Update local AI preferences state if user context changes
   useEffect(() => {
-    if (user?.aiFeedbackPreferences) {
-      setCurrentAiPreferences(user.aiFeedbackPreferences);
+    if (userProfile?.aiFeedbackPreferences) {
+      setCurrentAiPreferences(userProfile.aiFeedbackPreferences);
     }
-  }, [user?.aiFeedbackPreferences]);
+  }, [userProfile?.aiFeedbackPreferences]);
 
+  if (pageLoading) {
+    return (
+      <div className="flex h-[calc(100vh-10rem)] items-center justify-center">
+        <Loader2 className="h-16 w-16 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!userProfile) {
+    return <div className="text-center py-10">No user profile found. Please try logging in again.</div>;
+  }
 
   return (
     <div className="container mx-auto py-2 px-0 md:px-4 space-y-8">
@@ -79,7 +110,6 @@ export default function ProfilePage() {
         <p className="text-muted-foreground">Manage your personal information, health goals, and preferences.</p>
       </div>
 
-      {/* User Details Section */}
       <Card className="shadow-md" id="details">
         <CardHeader>
           <CardTitle className="text-xl">Personal Details</CardTitle>
@@ -89,27 +119,25 @@ export default function ProfilePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="name">Full Name</Label>
-              <Input id="name" value={user.name} readOnly disabled className="bg-muted/30"/>
+              <Input id="name" value={userProfile.name} readOnly disabled className="bg-muted/30"/>
             </div>
             <div>
               <Label htmlFor="phone">Phone Number</Label>
-              <Input id="phone" value={user.phoneNumber || ''} readOnly disabled className="bg-muted/30"/>
+              <Input id="phone" value={userProfile.phoneNumber || ''} readOnly disabled className="bg-muted/30"/>
             </div>
             <div>
               <Label htmlFor="email">Email Address</Label>
-              <Input id="email" type="email" value={user.email || ''} readOnly disabled className="bg-muted/30"/>
+              <Input id="email" type="email" value={userProfile.email || ''} readOnly disabled className="bg-muted/30"/>
             </div>
              <div>
               <Label htmlFor="dob">Date of Birth</Label>
-              <Input id="dob" value={user.dateOfBirth ? new Date(user.dateOfBirth).toLocaleDateString() : ''} readOnly disabled className="bg-muted/30"/>
+              <Input id="dob" value={userProfile.dateOfBirth ? new Date(userProfile.dateOfBirth).toLocaleDateString() : ''} readOnly disabled className="bg-muted/30"/>
             </div>
           </div>
-          {/* In a real app, an "Edit Profile" button would lead to a form for these fields */}
            <Button variant="outline" disabled className="mt-2"><Edit3 className="mr-2 h-4 w-4" />Edit Profile (Coming Soon)</Button>
         </CardContent>
       </Card>
       
-      {/* Medical Information Section */}
       <Card className="shadow-md" id="medical">
         <CardHeader>
           <CardTitle className="text-xl">Medical Information</CardTitle>
@@ -118,17 +146,16 @@ export default function ProfilePage() {
         <CardContent className="space-y-4">
            <div>
               <Label htmlFor="allergies">Allergies</Label>
-              <Input id="allergies" value={user.allergies?.join(', ') || 'Not specified'} readOnly disabled className="bg-muted/30"/>
+              <Input id="allergies" value={userProfile.allergies?.join(', ') || 'Not specified'} readOnly disabled className="bg-muted/30"/>
             </div>
             <div>
               <Label htmlFor="riskFactors">Known Risk Factors</Label>
-              <Input id="riskFactors" value={user.riskFactors ? Object.entries(user.riskFactors).map(([k,v]) => `${k}: ${v}`).join('; ') : 'Not specified'} readOnly disabled className="bg-muted/30"/>
+              <Input id="riskFactors" value={userProfile.riskFactors ? Object.entries(userProfile.riskFactors).map(([k,v]) => `${k}: ${v}`).join('; ') : 'Not specified'} readOnly disabled className="bg-muted/30"/>
             </div>
             <Button variant="outline" disabled><Edit3 className="mr-2 h-4 w-4" />Update Medical Info (Coming Soon)</Button>
         </CardContent>
       </Card>
 
-      {/* Health Goals Section */}
       <Card className="shadow-md" id="goals">
         <CardHeader className="flex flex-row justify-between items-center">
           <div>
@@ -140,12 +167,14 @@ export default function ProfilePage() {
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
-          {user.healthGoals.length > 0 ? (
-            user.healthGoals.map(goal => (
+          {authIsLoading && userProfile.healthGoals.length === 0 ? (
+             <div className="text-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /> <p>Loading goals...</p></div>
+          ) : userProfile.healthGoals.length > 0 ? (
+            userProfile.healthGoals.map(goal => (
               <HealthGoalItem 
                 key={goal.id} 
                 goal={goal} 
-                onUpdateGoalStatus={(goalId, status) => authUpdateHealthGoal({ ...user.healthGoals.find(g=>g.id===goalId)!, status})}
+                onUpdateGoalStatus={(goalId, status) => updateHealthGoal({ ...userProfile.healthGoals.find(g=>g.id===goalId)!, status})}
                 onEditGoal={handleEditGoal}
                 onDeleteGoal={handleDeleteGoal}
               />
@@ -162,7 +191,6 @@ export default function ProfilePage() {
         goal={editingGoal}
       />
 
-      {/* AI Feedback Preferences Section */}
       <Card className="shadow-md" id="ai-prefs">
         <CardHeader>
           <CardTitle className="text-xl flex items-center gap-2"><BellRing className="h-6 w-6 text-accent"/>AI Feedback Preferences</CardTitle>
@@ -173,8 +201,9 @@ export default function ProfilePage() {
             <div>
                 <Label htmlFor="symptomDetail">Symptom Analysis Detail</Label>
                 <Select 
-                    value={currentAiPreferences?.symptomExplainabilityLevel}
+                    value={currentAiPreferences?.symptomExplainabilityLevel || 'brief'}
                     onValueChange={(value) => handleAiPreferenceChange('symptomExplainabilityLevel', value)}
+                    disabled={authIsLoading}
                 >
                 <SelectTrigger id="symptomDetail">
                     <SelectValue placeholder="Select detail level" />
@@ -188,8 +217,9 @@ export default function ProfilePage() {
             <div>
                 <Label htmlFor="nudgeFrequency">Nudge Frequency</Label>
                 <Select
-                    value={currentAiPreferences?.nudgeFrequency}
+                    value={currentAiPreferences?.nudgeFrequency || 'medium'}
                     onValueChange={(value) => handleAiPreferenceChange('nudgeFrequency', value)}
+                    disabled={authIsLoading}
                 >
                 <SelectTrigger id="nudgeFrequency">
                     <SelectValue placeholder="Select frequency" />
@@ -205,7 +235,6 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Data & Privacy Section */}
       <Card className="shadow-md" id="privacy">
         <CardHeader>
           <CardTitle className="text-xl flex items-center gap-2"><ShieldCheck className="h-6 w-6 text-muted-foreground"/>Data & Privacy</CardTitle>
@@ -237,12 +266,11 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Logout Section */}
       <Card className="shadow-md">
         <CardContent className="p-6">
             <AlertDialog>
                 <AlertDialogTrigger asChild>
-                    <Button variant="destructive" className="w-full"><LogOut className="mr-2 h-4 w-4" /> Logout</Button>
+                    <Button variant="destructive" className="w-full" disabled={authIsLoading}><LogOut className="mr-2 h-4 w-4" /> Logout</Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                     <AlertDialogHeader>
@@ -263,3 +291,5 @@ export default function ProfilePage() {
     </div>
   );
 }
+
+    

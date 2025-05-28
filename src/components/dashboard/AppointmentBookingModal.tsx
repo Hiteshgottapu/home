@@ -15,27 +15,31 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Calendar as CalendarIcon, Clock, User, Stethoscope, MessageCircle, CheckCircle, ChevronLeft, ChevronRight, Loader2, Gift, Sparkles, Briefcase } from 'lucide-react';
-import { format, addDays, setHours, setMinutes, isPast, startOfDay, isToday as dateFnsIsToday } from 'date-fns';
+import { format, addDays, setHours, setMinutes, isPast, startOfDay, isToday as dateFnsIsToday, parseISO } from 'date-fns';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { db } from '@/lib/firebase';
+import { collection, addDoc } from 'firebase/firestore';
+import type { UpcomingAppointment } from '@/types';
 
 interface AppointmentBookingModalProps {
   isOpen: boolean;
   onClose: () => void;
   isFirstAppointmentFree?: boolean;
-  onBookingSuccess: () => void;
+  onBookingSuccess: (newAppointment: UpcomingAppointment) => void; 
 }
 
-// Mock Data
 const mockServices = [
   { id: 's1', name: 'General Check-up', duration: 30, relatedSpecialties: ['general', 'family_medicine'] },
-  { id: 's2', name: 'Specialist Consultation (Cardiology)', duration: 45, relatedSpecialties: ['cardiology'] },
-  { id: 's3', name: 'Specialist Consultation (Dermatology)', duration: 45, relatedSpecialties: ['dermatology'] },
-  { id: 's4', name: 'Follow-up Visit', duration: 20, relatedSpecialties: ['general', 'cardiology', 'dermatology', 'pediatrics', 'neurology', 'family_medicine'] },
-  { id: 's5', name: 'Vaccination', duration: 15, relatedSpecialties: ['general', 'pediatrics', 'family_medicine'] },
+  { id: 's2', name: 'Cardiology Consultation', duration: 45, relatedSpecialties: ['cardiology'] },
+  { id: 's3', name: 'Dermatology Consultation', duration: 45, relatedSpecialties: ['dermatology'] },
+  { id: 's4', name: 'Pediatric Check-up', duration: 30, relatedSpecialties: ['pediatrics'] },
+  { id: 's5', name: 'Neurology Consultation', duration: 50, relatedSpecialties: ['neurology'] },
   { id: 's6', name: 'Mental Health Counseling', duration: 50, relatedSpecialties: ['psychiatry', 'psychology'] },
   { id: 's7', name: 'Physical Therapy Session', duration: 60, relatedSpecialties: ['physical_therapy'] },
+  { id: 's8', name: 'Follow-up Visit (General)', duration: 20, relatedSpecialties: ['general', 'family_medicine', 'cardiology', 'dermatology', 'pediatrics', 'neurology'] },
+  { id: 's9', name: 'Vaccination Appointment', duration: 15, relatedSpecialties: ['general', 'pediatrics', 'family_medicine'] },
 ];
 
 const mockDoctors = [
@@ -46,31 +50,29 @@ const mockDoctors = [
   { id: 'd5', name: 'Dr. Aisha Khan', specialty: 'neurology' },
   { id: 'd6', name: 'Dr. Carlos Rivera', specialty: 'family_medicine' },
   { id: 'd7', name: 'Dr. Sofia Petrova', specialty: 'psychiatry' },
-  { id: 'd8', name: 'Mr. David Lee', specialty: 'physical_therapy' },
+  { id: 'd8', name: 'Mr. David Lee (PT)', specialty: 'physical_therapy' },
   { id: 'd9', name: 'Dr. Alice Wonderland', specialty: 'general' },
   { id: 'd10', name: 'Dr. Bob The Builder', specialty: 'family_medicine'},
+  { id: 'd11', name: 'Dr. Eva Rostova', specialty: 'psychology'},
+  { id: 'd12', name: 'Dr. Ken Adams', specialty: 'cardiology'},
 ];
 
 
-// Schemas for 3-step form
 const step1Schema = z.object({
   serviceId: z.string().min(1, "Please select a service."),
   doctorId: z.string().min(1, "Please select a doctor."),
 });
-type Step1Values = z.infer<typeof step1Schema>;
 
 const step2Schema = z.object({
   appointmentDate: z.date({ required_error: "Please select a date." }),
   appointmentTime: z.string().min(1, "Please select a time slot."),
 });
-type Step2Values = z.infer<typeof step2Schema>;
 
 const step3Schema = z.object({
   notes: z.string().max(300, "Notes cannot exceed 300 characters.").optional(),
 });
-type Step3Values = z.infer<typeof step3Schema>;
 
-type CombinedFormValues = Step1Values & Step2Values & Step3Values;
+type CombinedFormValues = z.infer<typeof step1Schema> & z.infer<typeof step2Schema> & z.infer<typeof step3Schema>;
 
 export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFree = false, onBookingSuccess }: AppointmentBookingModalProps) {
   const [currentStep, setCurrentStep] = useState(1);
@@ -79,7 +81,7 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
   const [availableTimeSlots, setAvailableTimeSlots] = useState<string[]>([]);
   const [filteredDoctors, setFilteredDoctors] = useState(mockDoctors);
 
-  const { userProfile } = useAuth();
+  const { userProfile, firebaseUser } = useAuth();
   const { toast } = useToast();
 
   const { control, handleSubmit, watch, setValue, reset, formState: { errors, isValid }, trigger } = useForm<CombinedFormValues>({
@@ -87,10 +89,10 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
       let currentValidationSchema;
       if (currentStep === 1) currentValidationSchema = step1Schema;
       else if (currentStep === 2) currentValidationSchema = step1Schema.merge(step2Schema);
-      else currentValidationSchema = step1Schema.merge(step2Schema).merge(step3Schema); // Step 3 validates all
+      else currentValidationSchema = step1Schema.merge(step2Schema).merge(step3Schema);
       return zodResolver(currentValidationSchema)(data, context, options);
     },
-    mode: 'onChange',
+    mode: 'onChange', // 'onBlur' might be better for performance in some cases
     defaultValues: {
         serviceId: '',
         doctorId: '',
@@ -104,16 +106,15 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
   const selectedDoctorId = watch('doctorId');
   const selectedDate = watch('appointmentDate');
   
-
   useEffect(() => {
     if (selectedServiceId) {
       const service = mockServices.find(s => s.id === selectedServiceId);
       if (service) {
         setFilteredDoctors(mockDoctors.filter(doc => service.relatedSpecialties.includes(doc.specialty)));
       }
-      setValue('doctorId', ''); 
-      setValue('appointmentDate', undefined); 
-      setValue('appointmentTime', ''); 
+      setValue('doctorId', '', { shouldValidate: true }); 
+      setValue('appointmentDate', undefined, { shouldValidate: true }); 
+      setValue('appointmentTime', '', { shouldValidate: true }); 
     } else {
       setFilteredDoctors(mockDoctors); 
     }
@@ -121,7 +122,7 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
 
   useEffect(() => {
     if (selectedDoctorId) {
-        setValue('appointmentTime', '');
+        setValue('appointmentTime', '', { shouldValidate: true });
     }
   }, [selectedDoctorId, setValue]);
 
@@ -131,7 +132,7 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
       const service = mockServices.find(s => s.id === selectedServiceId);
       if (!service) {
         setAvailableTimeSlots([]);
-        setValue('appointmentTime', ''); 
+        setValue('appointmentTime', '', { shouldValidate: true }); 
         return;
       }
 
@@ -141,28 +142,31 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
 
       if (currentSelectedDate < today && !dateFnsIsToday(currentSelectedDate)) {
         setAvailableTimeSlots([]);
-        setValue('appointmentTime', '');
+        setValue('appointmentTime', '', { shouldValidate: true });
         return;
       }
 
       const openingTime = setMinutes(setHours(currentSelectedDate, 9), 0);
       const closingTime = setMinutes(setHours(currentSelectedDate, 17), 0);
-      let currentTime = openingTime;
+      let currentTimePointer = openingTime;
 
-      while (currentTime < closingTime) {
-        const slotEnd = new Date(currentTime.getTime() + service.duration * 60000);
-        if (slotEnd <= closingTime && (dateFnsIsToday(currentSelectedDate) ? currentTime > new Date() : true)) {
-          slots.push(format(currentTime, 'HH:mm'));
+      while (currentTimePointer < closingTime) {
+        const slotEnd = new Date(currentTimePointer.getTime() + service.duration * 60000);
+        // Check if slot is in the future if it's for today
+        if (slotEnd <= closingTime && (dateFnsIsToday(currentSelectedDate) ? currentTimePointer > new Date() : true)) {
+          slots.push(format(currentTimePointer, 'HH:mm'));
         }
-        currentTime = new Date(currentTime.getTime() + Math.max(15, service.duration) * 60000); 
+        // Advance by at least 15 mins or service duration
+        currentTimePointer = new Date(currentTimePointer.getTime() + Math.max(15, service.duration) * 60000); 
       }
       setAvailableTimeSlots(slots);
+      // If existing time is no longer valid, reset it
       if (watch('appointmentTime') && !slots.includes(watch('appointmentTime')!)) {
-        setValue('appointmentTime', '');
+        setValue('appointmentTime', '', { shouldValidate: true });
       }
     } else {
       setAvailableTimeSlots([]);
-      setValue('appointmentTime', ''); 
+      setValue('appointmentTime', '', { shouldValidate: true }); 
     }
   }, [selectedDate, selectedServiceId, selectedDoctorId, setValue, watch]);
 
@@ -183,6 +187,10 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
   };
 
   const onSubmitForm: SubmitHandler<CombinedFormValues> = async (data) => {
+    if (!firebaseUser || !db) {
+        toast({ title: "Error", description: "User not authenticated or database not available.", variant: "destructive" });
+        return;
+    }
     setIsLoading(true);
     
     if (!data.appointmentDate || !(data.appointmentDate instanceof Date) || isNaN(data.appointmentDate.getTime())) {
@@ -197,17 +205,50 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
       return;
     }
     
-    await new Promise(resolve => setTimeout(resolve, 1500)); 
+    const service = mockServices.find(s => s.id === data.serviceId);
+    const doctor = mockDoctors.find(d => d.id === data.doctorId);
 
-    toast({
-      title: "Appointment Booked!",
-      description: `Your appointment with ${mockDoctors.find(d => d.id === data.doctorId)?.name} on ${format(data.appointmentDate, 'PPP')} at ${data.appointmentTime} is confirmed.`,
-      variant: 'default',
-      duration: 5000,
-    });
-    setIsLoading(false);
-    setBookingComplete(true);
-    onBookingSuccess();
+    if (!service || !doctor) {
+        toast({ title: "Booking Error", description: "Selected service or doctor not found.", variant: "destructive"});
+        setIsLoading(false);
+        return;
+    }
+
+    const [hours, minutes] = data.appointmentTime.split(':').map(Number);
+    const appointmentDateTime = setMinutes(setHours(data.appointmentDate, hours), minutes);
+
+    const newAppointmentData: Omit<UpcomingAppointment, 'id'> = {
+        userId: firebaseUser.uid,
+        serviceId: data.serviceId,
+        serviceName: service.name,
+        doctorId: data.doctorId,
+        doctorName: doctor.name,
+        dateTime: appointmentDateTime.toISOString(),
+        notes: data.notes,
+        meetingLink: `https://meet.google.com/new-mock-${Date.now()}`, // Mock meeting link
+        durationMinutes: service.duration,
+    };
+
+    try {
+        const appointmentsColRef = collection(db, `users/${firebaseUser.uid}/appointments`);
+        const docRef = await addDoc(appointmentsColRef, newAppointmentData);
+        
+        toast({
+          title: "Appointment Booked!",
+          description: `Your appointment with ${doctor.name} on ${format(appointmentDateTime, 'PPP')} at ${data.appointmentTime} is confirmed.`,
+          variant: 'default',
+          duration: 5000,
+        });
+        
+        setIsLoading(false);
+        setBookingComplete(true);
+        onBookingSuccess({ ...newAppointmentData, id: docRef.id });
+
+    } catch (error) {
+        console.error("Error saving appointment to Firestore:", error);
+        toast({ title: "Booking Failed", description: "Could not save your appointment. Please try again.", variant: "destructive"});
+        setIsLoading(false);
+    }
   };
 
   const handleCloseDialog = () => {
@@ -361,7 +402,7 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                         selected={field.value}
                         onSelect={(date) => {
                           field.onChange(date);
-                          setValue('appointmentTime', ''); 
+                          setValue('appointmentTime', '', { shouldValidate: true }); 
                           trigger('appointmentDate'); 
                         }}
                         disabled={(date) => isPast(date) && !dateFnsIsToday(date)}
@@ -467,7 +508,6 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
             </div>
           )}
 
-
           <DialogFooter className="p-6 border-t border-border bg-card sticky bottom-0 !mt-auto shadow-top">
             <div className="flex w-full justify-between items-center">
               <Button
@@ -480,17 +520,16 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                 <ChevronLeft className="mr-1.5 h-5 w-5" /> Previous
               </Button>
 
-              {currentStep < 3 && (
+              {currentStep < 3 ? (
                 <Button
                   type="button"
                   onClick={handleNextStep}
-                  disabled={isLoading} 
+                  disabled={isLoading || !isValid } 
                   className="bg-primary hover:bg-primary/90 text-primary-foreground py-3 px-5 text-base rounded-md shadow-md hover:shadow-lifted transition-all duration-300 transform hover:scale-105"
                 >
                   Next <ChevronRight className="ml-1.5 h-5 w-5" />
                 </Button>
-              )}
-              {currentStep === 3 && (
+              ) : (
                 <Button
                   type="submit"
                   disabled={isLoading || !isValid}
@@ -507,6 +546,5 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
     </Dialog>
   );
 }
-
 
     

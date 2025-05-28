@@ -1,56 +1,59 @@
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { PrescriptionUploadForm } from '@/components/insights/PrescriptionUploadForm';
 import { PrescriptionCard } from '@/components/insights/PrescriptionCard';
 import { PrescriptionDetailModal } from '@/components/insights/PrescriptionDetailModal';
 import type { Prescription } from '@/types';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ListFilter, FileSearch, LayoutGrid, List } from 'lucide-react';
+import { PlusCircle, ListFilter, FileSearch, LayoutGrid, List, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Image from 'next/image';
-import { Card, CardContent } from '@/components/ui/card'; // Ensured import
-
-// Mock initial prescriptions
-const initialPrescriptions: Prescription[] = [
-  {
-    id: 'pres_1',
-    fileName: 'DrSmith_Rx_Amoxicillin.pdf',
-    uploadDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
-    status: 'verified',
-    extractedMedications: [{ name: 'Amoxicillin', dosage: '250mg', frequency: 'Thrice daily' }],
-    ocrConfidence: 0.92,
-    doctor: "Dr. Smith",
-    patientName: "Alex Ryder",
-    userVerificationStatus: 'verified',
-  },
-  {
-    id: 'pres_2',
-    fileName: 'CardioClinic_Atorvastatin.jpg',
-    uploadDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(), // 10 days ago
-    status: 'needs_correction',
-    extractedMedications: [{ name: 'Atorvasttin', dosage: '20mg', frequency: 'Once daily' }, { name: 'Asprin', dosage: '81mg', frequency: 'Once daily'}],
-    ocrConfidence: 0.65,
-    doctor: "Cardio Clinic",
-    patientName: "Alex Ryder",
-    userVerificationStatus: 'pending',
-  },
-];
-
+import { Card, CardContent } from '@/components/ui/card';
+import { useAuth } from '@/contexts/AuthContext';
+import { db } from '@/lib/firebase';
+import { collection, query, orderBy, onSnapshot, Unsubscribe, doc, updateDoc } from 'firebase/firestore';
+import { useToast } from '@/hooks/use-toast';
 
 export default function InsightsHubPage() {
-  const [prescriptions, setPrescriptions] = useState<Prescription[]>(initialPrescriptions);
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [selectedPrescription, setSelectedPrescription] = useState<Prescription | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
+  const [isLoading, setIsLoading] = useState(true);
 
+  const { firebaseUser, isLoading: authIsLoading } = useAuth();
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (!firebaseUser || !db) {
+        if (!authIsLoading) setIsLoading(false);
+        return;
+    }
+    setIsLoading(true);
+    const prescriptionsQuery = query(collection(db, `users/${firebaseUser.uid}/prescriptions`), orderBy("uploadDate", "desc"));
+    const unsubscribe = onSnapshot(prescriptionsQuery, (snapshot) => {
+        const scripts: Prescription[] = [];
+        snapshot.forEach(doc => scripts.push({ id: doc.id, ...doc.data() } as Prescription));
+        setPrescriptions(scripts);
+        setIsLoading(false);
+    }, (error) => {
+        console.error("Error fetching prescriptions:", error);
+        toast({ title: "Error", description: "Could not fetch prescriptions.", variant: "destructive" });
+        setIsLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [firebaseUser, authIsLoading, toast]);
 
   const handleUploadSuccess = (newPrescription: Prescription) => {
-    setPrescriptions(prev => [newPrescription, ...prev]);
+    // Firestore onSnapshot will update the list, so no need to manually add here.
+    // setPrescriptions(prev => [newPrescription, ...prev]); // No longer needed with onSnapshot
+    toast({ title: "Upload Successful", description: `${newPrescription.fileName} has been added.`});
   };
 
   const handleViewDetails = (prescription: Prescription) => {
@@ -59,22 +62,44 @@ export default function InsightsHubPage() {
   };
   
   const handleVerify = (prescription: Prescription) => {
-    // This could open the same modal, perhaps pre-scrolled to an edit section
     setSelectedPrescription(prescription);
     setIsModalOpen(true);
   };
 
-  const handleSaveVerification = (updatedPrescription: Prescription) => {
-    setPrescriptions(prev => prev.map(p => p.id === updatedPrescription.id ? updatedPrescription : p));
-    setIsModalOpen(false); // Close modal after saving
+  const handleSaveVerification = async (updatedPrescription: Prescription) => {
+    if (!firebaseUser || !db) {
+        toast({ title: "Error", description: "Cannot save verification. User not authenticated.", variant: "destructive" });
+        return;
+    }
+    try {
+        const presDocRef = doc(db, `users/${firebaseUser.uid}/prescriptions`, updatedPrescription.id);
+        // Make sure not to save userId again if it's already part of the path, and id is path itself
+        const { id, userId, ...dataToUpdate } = updatedPrescription;
+        await updateDoc(presDocRef, dataToUpdate);
+        toast({ title: "Verification Saved", description: "Your changes have been saved successfully." });
+        // onSnapshot will update the local state
+    } catch (error) {
+        console.error("Error saving verification:", error);
+        toast({ title: "Save Failed", description: "Could not save your verification.", variant: "destructive"});
+    }
+    setIsModalOpen(false);
   };
 
   const filteredPrescriptions = prescriptions
     .filter(p => p.fileName.toLowerCase().includes(searchTerm.toLowerCase()) || 
                  p.extractedMedications?.some(med => med.name.toLowerCase().includes(searchTerm.toLowerCase())))
-    .filter(p => filterStatus === 'all' || p.status === filterStatus)
-    .sort((a, b) => new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime());
+    .filter(p => filterStatus === 'all' || p.status === filterStatus);
+    // Sorting is now handled by Firestore query's orderBy
 
+
+  if (isLoading) {
+    return (
+      <div className="flex h-[calc(100vh-10rem)] items-center justify-center">
+        <Loader2 className="h-16 w-16 animate-spin text-primary" />
+        <p className="ml-3 text-muted-foreground">Loading prescriptions...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto py-2 px-0 md:px-4 space-y-8">
@@ -144,7 +169,6 @@ export default function InsightsHubPage() {
         )}
       </section>
       
-      {/* Placeholder for Comprehensive Health Report View */}
       <section className="mt-12">
          <h2 className="text-2xl font-semibold mb-4 text-foreground">Comprehensive Health Reports</h2>
           <Card className="shadow-md">
@@ -165,3 +189,5 @@ export default function InsightsHubPage() {
     </div>
   );
 }
+
+    

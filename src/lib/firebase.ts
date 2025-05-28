@@ -2,6 +2,8 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
+import { getFirestore, type Firestore } from 'firebase/firestore';
+import { getStorage, type FirebaseStorage } from 'firebase/storage';
 // import { getAnalytics } from "firebase/analytics"; // Analytics can be added if needed
 
 // Explicitly load environment variables
@@ -26,6 +28,8 @@ console.log("-------------------------------------------------------------");
 
 let app: FirebaseApp | undefined = undefined;
 let authInstance: Auth | undefined = undefined;
+let dbInstance: Firestore | undefined = undefined;
+let storageInstance: FirebaseStorage | undefined = undefined;
 // let analytics; // Uncomment if you add getAnalytics
 
 if (!apiKey || !authDomain || !projectId) {
@@ -61,21 +65,47 @@ if (!apiKey || !authDomain || !projectId) {
     try {
       app = initializeApp(firebaseConfig);
       authInstance = getAuth(app);
+      dbInstance = getFirestore(app);
+      storageInstance = getStorage(app);
       // analytics = getAnalytics(app); // Uncomment if you add getAnalytics
-      console.log("Firebase app initialized successfully. Auth instance created.");
+      console.log("Firebase app initialized successfully. Auth, Firestore, and Storage instances created.");
     } catch (e: any) {
-      console.error("ERROR DURING FIREBASE INITIALIZATION (initializeApp or getAuth):", e.message);
+      console.error("ERROR DURING FIREBASE INITIALIZATION (initializeApp, getAuth, getFirestore, or getStorage):", e.message);
       console.error("Firebase config used during failed initialization:", firebaseConfig);
       console.error("Full error object:", e);
-      // app and authInstance will remain undefined
+      // app, authInstance, dbInstance, storageInstance will remain undefined
     }
   } else {
     app = getApp();
-    authInstance = getAuth(app); // Ensure authInstance is assigned here too
+    authInstance = getAuth(app); 
+    dbInstance = getFirestore(app);
+    storageInstance = getStorage(app);
     // analytics = getAnalytics(app); // Uncomment if you add getAnalytics
-    console.log("Existing Firebase app instance retrieved. Auth instance created/retrieved.");
+    console.log("Existing Firebase app instance retrieved. Auth, Firestore, and Storage instances created/retrieved.");
   }
 }
 
-export { app, authInstance as auth };
-// export { app, authInstance as auth, analytics }; // Uncomment if you add getAnalytics
+// IMPORTANT: Set up Firestore Security Rules in the Firebase console
+// to protect your data. A basic rule for user-specific data might be:
+// rules_version = '2';
+// service cloud.firestore {
+//   match /databases/{database}/documents {
+//     match /users/{userId}/{document=**} {
+//       allow read, write: if request.auth != null && request.auth.uid == userId;
+//     }
+//   }
+// }
+// And for Firebase Storage:
+// rules_version = '2';
+// service firebase.storage {
+//  match /b/{bucket}/o {
+//    match /users/{userId}/{allPaths=**} {
+//      allow read, write: if request.auth != null && request.auth.uid == userId;
+//    }
+//  }
+// }
+
+export { app, authInstance as auth, dbInstance as db, storageInstance as storage };
+// export { app, authInstance as auth, dbInstance as db, storageInstance as storage, analytics }; // Uncomment if you add getAnalytics
+
+    

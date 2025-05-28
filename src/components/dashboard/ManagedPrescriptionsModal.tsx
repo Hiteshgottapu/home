@@ -2,12 +2,12 @@
 "use client";
 
 import type { Prescription } from '@/types';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription as ShadCardDescription } from "@/components/ui/dialog"; // Aliased DialogDescription
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription as ShadCardDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle as ShadCardTitle } from "@/components/ui/card"; // Aliased CardTitle to avoid conflict
+import { Card, CardContent, CardHeader, CardTitle as ShadCardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import Image from 'next/image';
-import { FileText, CalendarDays, Pill, Thermometer, Repeat, Percent, User, Stethoscope, Trash2, AlertTriangle } from 'lucide-react';
+import { FileText, CalendarDays, Pill, Thermometer, Repeat, Percent, User, Stethoscope, Trash2, AlertTriangle, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -22,41 +22,65 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogTitle, // Renamed to avoid conflict if used directly
+  AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { useAuth } from '@/contexts/AuthContext';
+import { db, storage } from '@/lib/firebase';
+import { doc, deleteDoc } from 'firebase/firestore';
+import { ref, deleteObject } from 'firebase/storage';
 
 interface ManagedPrescriptionsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  prescriptions: Prescription[];
+  prescriptions: Prescription[]; // Comes from DashboardPage (fetched from Firestore)
 }
 
-export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: initialPrescriptions }: ManagedPrescriptionsModalProps) {
-  const [currentPrescriptions, setCurrentPrescriptions] = useState<Prescription[]>([]);
+export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions }: ManagedPrescriptionsModalProps) {
   const [prescriptionToDelete, setPrescriptionToDelete] = useState<Prescription | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
+  const { firebaseUser } = useAuth();
 
-  useEffect(() => {
-    if (isOpen) {
-      // Reset to initial prescriptions when modal opens or initialPrescriptions prop changes
-      setCurrentPrescriptions(initialPrescriptions); 
-    }
-  }, [isOpen, initialPrescriptions]);
+  // The 'prescriptions' prop is now the source of truth from Firestore via DashboardPage.
+  // The modal doesn't need to manage its own 'currentPrescriptions' state for display
+  // as updates from Firestore (like deletion) will flow down from DashboardPage.
 
   const handleDeleteClick = (prescription: Prescription) => {
     setPrescriptionToDelete(prescription);
   };
 
-  const confirmDelete = () => {
-    if (prescriptionToDelete) {
-      setCurrentPrescriptions(prev => prev.filter(p => p.id !== prescriptionToDelete.id));
-      toast({
-        title: "Prescription Deleted",
-        description: `"${prescriptionToDelete.fileName}" has been removed (mock).`,
-        variant: "default" 
-      });
-      setPrescriptionToDelete(null); 
+  const confirmDelete = async () => {
+    if (!prescriptionToDelete || !firebaseUser || !db || !storage) {
+        toast({ title: "Error", description: "Cannot delete prescription. Missing user or DB/Storage instance.", variant: "destructive" });
+        setPrescriptionToDelete(null);
+        return;
+    }
+    setIsDeleting(true);
+    try {
+        // 1. Delete Firestore document
+        const presDocRef = doc(db, `users/${firebaseUser.uid}/prescriptions`, prescriptionToDelete.id);
+        await deleteDoc(presDocRef);
+
+        // 2. Delete image from Firebase Storage if storagePath exists
+        if (prescriptionToDelete.storagePath) {
+            const imageRef = ref(storage, prescriptionToDelete.storagePath);
+            await deleteObject(imageRef);
+        }
+        
+        toast({
+            title: "Prescription Deleted",
+            description: `"${prescriptionToDelete.fileName}" has been removed.`,
+            variant: "default" 
+        });
+        // The list will update automatically due to onSnapshot in DashboardPage
+
+    } catch (error) {
+        console.error("Error deleting prescription:", error);
+        toast({ title: "Deletion Failed", description: "Could not delete the prescription. Please try again.", variant: "destructive"});
+    } finally {
+        setIsDeleting(false);
+        setPrescriptionToDelete(null); 
     }
   };
 
@@ -84,8 +108,7 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
     }
   };
   
-  // Return null if modal is closed and no deletion is pending, helps with unmounting & state reset
-  if (!isOpen && currentPrescriptions.length === 0 && !prescriptionToDelete) { 
+  if (!isOpen) { 
       return null; 
   }
 
@@ -103,8 +126,8 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
           </ShadCardDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-grow px-6 py-2"> {/* Adjusted py for spacing from header */}
-          {currentPrescriptions.length === 0 ? (
+        <ScrollArea className="flex-grow px-6 py-2">
+          {prescriptions.length === 0 ? (
              <div className="flex flex-col items-center justify-center h-full text-center py-10">
                 <FileText className="h-16 w-16 text-muted-foreground mx-auto mb-4" data-ai-hint="document icon" />
                 <p className="text-lg font-medium text-foreground">No Prescriptions Yet</p>
@@ -116,7 +139,7 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
             </div>
           ) : (
             <div className="space-y-6 py-4">
-              {currentPrescriptions.map((prescription, idx) => (
+              {prescriptions.map((prescription, idx) => (
                 <Card key={prescription.id || idx} className="overflow-hidden shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-[1.02] group relative">
                   <AlertDialog open={!!prescriptionToDelete && prescriptionToDelete.id === prescription.id} onOpenChange={(open) => !open && setPrescriptionToDelete(null)}>
                     <AlertDialogTrigger asChild>
@@ -126,15 +149,16 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
                         onClick={() => handleDeleteClick(prescription)} 
                         className="absolute top-3 right-3 z-20 h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
                         aria-label="Delete prescription"
+                        disabled={isDeleting}
                       >
-                        <Trash2 className="h-5 w-5" /> {/* Standardized icon size */}
+                        {isDeleting && prescriptionToDelete?.id === prescription.id ? <Loader2 className="h-5 w-5 animate-spin" /> : <Trash2 className="h-5 w-5" />}
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
                         <AlertDialogTitle className="flex items-center gap-2"><AlertTriangle className="text-destructive" />Confirm Deletion</AlertDialogTitle>
                         <AlertDialogDescription>
-                          Are you sure you want to delete the prescription for "{prescriptionToDelete?.fileName}"? This action cannot be undone (locally for this session).
+                          Are you sure you want to delete the prescription for "{prescriptionToDelete?.fileName}"? This action cannot be undone.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
@@ -145,7 +169,6 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
                   </AlertDialog>
                   
                   <div className="grid md:grid-cols-2 gap-0">
-                    {/* Image Side */}
                     <div className="bg-muted/30 p-4 flex items-center justify-center relative aspect-[3/4] md:aspect-auto">
                       {prescription.imageUrl ? (
                         <Image
@@ -164,7 +187,6 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
                       )}
                     </div>
 
-                    {/* Details Side */}
                     <div className="p-5 flex flex-col">
                       <CardHeader className="p-0 pb-3">
                         <ShadCardTitle className="text-lg text-primary truncate" title={prescription.fileName}>
@@ -194,7 +216,6 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
                           <p className="text-sm text-muted-foreground flex items-center gap-1.5"><Stethoscope className="h-4 w-4"/>Doctor: <span className="font-medium text-foreground">{prescription.doctor}</span></p>
                          )}
 
-
                         {prescription.extractedMedications && prescription.extractedMedications.length > 0 ? (
                           <Accordion type="single" collapsible className="w-full pt-2">
                             <AccordionItem value="medications" className="border-t border-b-0">
@@ -216,7 +237,7 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
                           <p className="text-sm text-muted-foreground italic pt-2">No medications extracted for this item.</p>
                         )}
                       </CardContent>
-                       <div className="p-0 pt-4 mt-auto"> {/* CardFooter replacement for layout */}
+                       <div className="p-0 pt-4 mt-auto">
                           <Link href={`/insights#${prescription.id}`} passHref legacyBehavior>
                              <Button variant="outline" size="sm" className="w-full" onClick={() => { onClose(); setPrescriptionToDelete(null); }}>
                                View Full Details in Insights Hub
@@ -230,9 +251,9 @@ export function ManagedPrescriptionsModal({ isOpen, onClose, prescriptions: init
             </div>
           )}
         </ScrollArea>
-        {/* Removed DialogFooter as per user request */}
       </DialogContent>
     </Dialog>
   );
 }
 
+    
