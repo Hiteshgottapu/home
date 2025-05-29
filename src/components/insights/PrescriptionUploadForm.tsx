@@ -10,11 +10,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Loader2, UploadCloud, FileText, CheckCircle, AlertCircle, Pill, Info, ListChecks, ShieldAlert, BookOpen, Eye } from 'lucide-react';
+import { Loader2, UploadCloud, FileText, CheckCircle, AlertCircle, Pill, Eye } from 'lucide-react';
 import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
-import { extractMedicationDetails, ExtractMedicationDetailsOutput } from '@/ai/flows/extract-medication-details';
-import { getMedicineInfo, GetMedicineInfoOutput } from '@/ai/flows/get-medicine-info-flow';
+// Removed Genkit flow imports:
+// import { extractMedicationDetails, ExtractMedicationDetailsOutput } from '@/ai/flows/extract-medication-details';
+// import { getMedicineInfo, GetMedicineInfoOutput } from '@/ai/flows/get-medicine-info-flow';
 import type { Prescription, MedicationDetail } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { db, storage } from '@/lib/firebase';
@@ -22,7 +23,7 @@ import { collection, addDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
+const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'application/pdf']; // PDF might not work well with direct Gemini image input unless CF handles PDF->image conversion
 
 const PrescriptionUploadSchema = z.object({
   prescriptionFile: z
@@ -31,30 +32,28 @@ const PrescriptionUploadSchema = z.object({
     .refine((files) => files && files[0]?.size <= MAX_FILE_SIZE, `Max file size is 10MB.`)
     .refine(
       (files) => files && ALLOWED_FILE_TYPES.includes(files[0]?.type),
-      "Only .jpg, .png, and .pdf files are allowed."
+      "Only .jpg and .png files are currently recommended for direct image analysis. PDF processing would require an additional step in the Cloud Function."
     )
     .optional(),
 });
 
 type PrescriptionUploadFormValues = z.infer<typeof PrescriptionUploadSchema>;
 
-interface ExtendedMedicationDetail extends MedicationDetail {
-  isLoadingInfo?: boolean;
-}
-
 interface PrescriptionUploadFormProps {
   onUploadSuccess: (prescription: Prescription) => void;
 }
 
+// Placeholder for your Cloud Function URL - REPLACE THIS!
+const CLOUD_FUNCTION_URL = 'YOUR_CLOUD_FUNCTION_URL_HERE'; // Example: https://us-central1-your-project-id.cloudfunctions.net/extractMedicinesFromImage
+
 export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFormProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [isAnalyzingText, setIsAnalyzingText] = useState(false);
-  const [isFetchingMedInfo, setIsFetchingMedInfo] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState<ExtractMedicationDetailsOutput | null>(null);
-  const [detailedMedicationInfo, setDetailedMedicationInfo] = useState<ExtendedMedicationDetail[]>([]);
+  const [isUploading, setIsUploading] = useState(false); // For Firebase Storage upload
+  const [isAnalyzingWithCloudFunction, setIsAnalyzingWithCloudFunction] = useState(false);
+  const [extractedMedicineNames, setExtractedMedicineNames] = useState<string[]>([]); // Stores names from Cloud Function
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+
   const { toast } = useToast();
   const { firebaseUser } = useAuth();
 
@@ -77,7 +76,8 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     console.log("PrescriptionUploadForm handleFileChange: Event triggered.");
     const files = event.target.files;
-    clearErrors('prescriptionFile'); 
+    clearErrors('prescriptionFile');
+    setExtractedMedicineNames([]); // Clear previous results
 
     if (files && files.length > 0) {
       const file = files[0];
@@ -92,12 +92,13 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
       if (file.type.startsWith('image/')) {
         setImagePreviewUrl(URL.createObjectURL(file));
       } else if (file.type === 'application/pdf') {
+        // PDF preview is not directly shown as an image here.
+        // Your Python Cloud Function would need to handle PDF to image conversion if it only accepts images.
         setImagePreviewUrl(null); 
+        toast({ title: "PDF Selected", description: "Note: PDF processing in the backend might require PDF-to-image conversion for analysis.", variant: "default" });
       } else {
         setImagePreviewUrl(null);
       }
-      setAnalysisResult(null);
-      setDetailedMedicationInfo([]);
     } else {
       console.log("PrescriptionUploadForm handleFileChange: No file selected or selection cancelled.");
       setValue('prescriptionFile', undefined, { shouldValidate: true });
@@ -107,33 +108,32 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
         URL.revokeObjectURL(imagePreviewUrl);
       }
       setImagePreviewUrl(null);
-      setAnalysisResult(null);
-      setDetailedMedicationInfo([]);
     }
   };
 
   const onSubmit: SubmitHandler<PrescriptionUploadFormValues> = async (dataFromRHF) => {
-    console.log("PrescriptionUploadForm onSubmit: Form submitted.", { dataFromRHF, selectedFileFromState: selectedFile, errorsFromRHF: errors });
+    console.log("PrescriptionUploadForm onSubmit: Form submitted.");
+    console.log({ dataFromRHF, selectedFileFromState: selectedFile, errorsFromRHF: errors });
 
     if (!selectedFile) {
-      console.error("PrescriptionUploadForm onSubmit: CRITICAL - selectedFile is null, cannot proceed. This indicates a state mismatch or logic error.");
-      toast({ title: "No File Selected", description: "Critical error: No file selected. Please try selecting the file again.", variant: "destructive" });
+      toast({ title: "No File Selected", description: "Please select a prescription file to analyze.", variant: "destructive" });
       return;
     }
 
     if (!firebaseUser || !db || !storage) {
-      console.error("PrescriptionUploadForm onSubmit: Firebase user, DB, or Storage not available. Aborting.");
-      toast({ title: "Error", description: "User not authenticated or Firebase services not available.", variant: "destructive" });
-      setIsUploading(false); setIsAnalyzingText(false); setIsFetchingMedInfo(false);
+      toast({ title: "Authentication Error", description: "Cannot proceed. User not authenticated or Firebase services unavailable.", variant: "destructive" });
       return;
     }
 
-    console.log("PrescriptionUploadForm onSubmit: All initial checks passed. Proceeding with upload and analysis.");
+    if (CLOUD_FUNCTION_URL === 'YOUR_CLOUD_FUNCTION_URL_HERE') {
+      toast({ title: "Configuration Error", description: "Cloud Function URL is not configured in the frontend code.", variant: "destructive" });
+      console.error("CRITICAL: CLOUD_FUNCTION_URL is not set in PrescriptionUploadForm.tsx");
+      return;
+    }
+
     setIsUploading(true);
-    setIsAnalyzingText(false);
-    setIsFetchingMedInfo(false);
-    setAnalysisResult(null); 
-    setDetailedMedicationInfo([]);
+    setIsAnalyzingWithCloudFunction(false);
+    setExtractedMedicineNames([]);
 
     const fileToProcess = selectedFile;
 
@@ -144,151 +144,103 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
       await uploadBytes(storageRef, fileToProcess);
       const imageUrl = await getDownloadURL(storageRef);
       console.log("PrescriptionUploadForm onSubmit: Step 1 - Upload to Firebase Storage successful. Image URL:", imageUrl);
-
       setIsUploading(false);
-      setIsAnalyzingText(true);
-      console.log("PrescriptionUploadForm onSubmit: Step 2 - Reading file as Data URL for AI analysis...");
+      setIsAnalyzingWithCloudFunction(true);
 
-      const reader = new FileReader();
-      reader.readAsDataURL(fileToProcess);
+      // Prepare data for Cloud Function
+      const formData = new FormData();
+      formData.append('image', fileToProcess);
 
-      reader.onloadend = async () => {
-        console.log("PrescriptionUploadForm onSubmit (reader.onloadend): File read as Data URL successfully.");
-        const base64data = reader.result as string;
-        if (!base64data) {
-          console.error("PrescriptionUploadForm onSubmit (reader.onloadend): Failed to read file as base64 data. Aborting AI analysis.");
-          toast({ title: "File Read Error", description: "Could not read the file for AI analysis.", variant: "destructive"});
-          setIsAnalyzingText(false);
-          return;
-        }
+      console.log("PrescriptionUploadForm onSubmit: Step 2 - Calling Cloud Function for medicine extraction...");
+      const response = await fetch(CLOUD_FUNCTION_URL, {
+        method: 'POST',
+        body: formData,
+        // 'Content-Type' header is automatically set by browser for FormData
+      });
+
+      setIsAnalyzingWithCloudFunction(false);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown server error during analysis."}));
+        console.error("Cloud Function Error Response:", errorData);
+        toast({ title: "Analysis Failed", description: errorData.error || `Server error: ${response.status}`, variant: "destructive" });
+        return;
+      }
+
+      const result = await response.json();
+      console.log("PrescriptionUploadForm onSubmit: Step 2 - Cloud Function response:", result);
+      
+      if (result.medicines && Array.isArray(result.medicines)) {
+        setExtractedMedicineNames(result.medicines);
         
-        try {
-          console.log("PrescriptionUploadForm onSubmit (reader.onloadend): Step 3 - Calling 'extractMedicationDetails' (Gemini for OCR)...");
-          const textExtractionResult = await extractMedicationDetails({ prescriptionDataUri: base64data });
-          console.log("PrescriptionUploadForm onSubmit (reader.onloadend): Step 3 - 'extractMedicationDetails' successful. Result:", textExtractionResult);
-          setAnalysisResult(textExtractionResult);
-          setIsAnalyzingText(false);
+        const medicationDetails: MedicationDetail[] = result.medicines.map((name: string) => ({
+          name: name,
+          dosage: '', // Not extracted by this Python flow
+          frequency: '', // Not extracted by this Python flow
+          // 'info' field is not populated by this Python flow
+        }));
 
-          let processedMedicationsForFirestore: MedicationDetail[] = textExtractionResult.medicationDetails || [];
+        console.log("PrescriptionUploadForm onSubmit: Step 3 - Preparing to save prescription to Firestore...");
+        const prescriptionDoc: Omit<Prescription, 'id'> = {
+          userId: firebaseUser.uid,
+          fileName: fileToProcess.name,
+          uploadDate: new Date().toISOString(),
+          status: 'needs_correction', // Default status after this extraction
+          extractedMedications: medicationDetails,
+          // ocrConfidence is not provided by this Python flow directly, can be omitted or set based on CF response if added
+          userVerificationStatus: 'pending',
+          imageUrl: imageUrl,
+          storagePath: storageFilePath,
+        };
+        
+        const prescriptionsColRef = collection(db, `users/${firebaseUser.uid}/prescriptions`);
+        const docRef = await addDoc(prescriptionsColRef, prescriptionDoc);
+        console.log("PrescriptionUploadForm onSubmit: Step 3 - Prescription saved to Firestore. Document ID:", docRef.id);
 
-          if (textExtractionResult.medicationDetails && textExtractionResult.medicationDetails.length > 0) {
-            console.log("PrescriptionUploadForm onSubmit (reader.onloadend): Step 4 - Fetching detailed info for extracted medications...");
-            setIsFetchingMedInfo(true);
-            const initialMedsWithLoadingState: ExtendedMedicationDetail[] = textExtractionResult.medicationDetails.map(med => ({
-              ...med,
-              isLoadingInfo: true,
-            }));
-            setDetailedMedicationInfo(initialMedsWithLoadingState);
-
-            const medicationProcessingPromises = textExtractionResult.medicationDetails.map(async (med) => {
-              try {
-                console.log(`PrescriptionUploadForm onSubmit: Fetching info for ${med.name}`);
-                const infoResult = await getMedicineInfo({ medicineName: med.name });
-                console.log(`PrescriptionUploadForm onSubmit: Info fetched for ${med.name}`, infoResult);
-                return { ...med, info: infoResult, isLoadingInfo: false };
-              } catch (infoError) {
-                console.error(`PrescriptionUploadForm onSubmit: Error fetching info for ${med.name}:`, infoError);
-                toast({ title: "Info Fetch Error", description: `Could not fetch detailed information for ${med.name}.`, variant: "destructive", duration: 3000 });
-                return { ...med, info: undefined, isLoadingInfo: false };
-              }
-            });
-
-            const settledResults = await Promise.allSettled(medicationProcessingPromises);
-            
-            const finalMedicationDetails: ExtendedMedicationDetail[] = settledResults.map((result, index) => {
-              if (result.status === 'fulfilled') {
-                return result.value;
-              } else {
-                console.error(`PrescriptionUploadForm onSubmit: Promise for medication info (index ${index}) rejected:`, result.reason);
-                return {
-                  ...(textExtractionResult.medicationDetails?.[index] || { name: 'Unknown', dosage: '', frequency: '' }),
-                  info: undefined,
-                  isLoadingInfo: false,
-                };
-              }
-            });
-
-            console.log("PrescriptionUploadForm onSubmit (reader.onloadend): Step 4 - All detailed medication info fetched/processed.");
-            setDetailedMedicationInfo(finalMedicationDetails);
-            processedMedicationsForFirestore = finalMedicationDetails.map(med => {
-              const { isLoadingInfo, ...rest } = med; 
-              return { ...rest, ...(rest.info && { info: rest.info }) };
-            });
-            setIsFetchingMedInfo(false);
-          } else {
-             console.log("PrescriptionUploadForm onSubmit (reader.onloadend): Step 4 - No medications extracted to fetch details for.");
-          }
-
-          console.log("PrescriptionUploadForm onSubmit (reader.onloadend): Step 5 - Preparing to save prescription to Firestore...");
-          const prescriptionDoc: Omit<Prescription, 'id'> = {
-            userId: firebaseUser.uid,
-            fileName: fileToProcess.name,
-            uploadDate: new Date().toISOString(),
-            status: 'needs_correction',
-            extractedMedications: processedMedicationsForFirestore,
-            ocrConfidence: textExtractionResult.ocrConfidence,
-            userVerificationStatus: 'pending',
-            imageUrl: imageUrl,
-            storagePath: storageFilePath,
-          };
-          
-          const prescriptionsColRef = collection(db, `users/${firebaseUser.uid}/prescriptions`);
-          const docRef = await addDoc(prescriptionsColRef, prescriptionDoc);
-          console.log("PrescriptionUploadForm onSubmit (reader.onloadend): Step 5 - Prescription saved to Firestore. Document ID:", docRef.id);
-
-          onUploadSuccess({ ...prescriptionDoc, id: docRef.id });
-          toast({
-            title: "Analysis Complete",
-            description: "Prescription details extracted and analyzed. Please review and verify.",
-          });
-          
-          reset(); 
-          setSelectedFile(null);
-          setSelectedFileName(null);
-          if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
-          setImagePreviewUrl(null);
-          // analysisResult & detailedMedicationInfo are kept visible for user review until next file selection
-        } catch (aiError) {
-          console.error("PrescriptionUploadForm onSubmit (reader.onloadend): AI analysis or Firestore saving error.", aiError);
-          toast({ title: "AI Analysis Failed", description: "Could not analyze the prescription or save details. Please try again.", variant: "destructive" });
-          setIsAnalyzingText(false);
-          setIsFetchingMedInfo(false);
-          setAnalysisResult(null); 
-          setDetailedMedicationInfo([]);
-        }
-      };
-
-      reader.onerror = () => {
-        console.error("PrescriptionUploadForm onSubmit (reader.onerror): File reading error for AI analysis.");
-        toast({ title: "File Reading Error", description: "Could not read the file for AI analysis.", variant: "destructive" });
-        setIsUploading(false); setIsAnalyzingText(false); setIsFetchingMedInfo(false);
-        setAnalysisResult(null); setDetailedMedicationInfo([]);
-        reset();
-        setSelectedFile(null); setSelectedFileName(null);
+        onUploadSuccess({ ...prescriptionDoc, id: docRef.id });
+        toast({
+          title: "Analysis Complete",
+          description: "Medicines extracted. Please review and verify.",
+        });
+        
+        // Reset form for next upload
+        reset(); 
+        setSelectedFile(null);
+        setSelectedFileName(null);
         if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
         setImagePreviewUrl(null);
-      };
+        // Keep extractedMedicineNames visible for review until next file selection
 
-    } catch (uploadError) {
-      console.error("PrescriptionUploadForm onSubmit: Firebase Storage upload or other initialization error.", uploadError);
-      toast({ title: "Upload Failed", description: "An unexpected error occurred during upload.", variant: "destructive" });
-      setIsUploading(false); setIsAnalyzingText(false); setIsFetchingMedInfo(false);
-      setAnalysisResult(null); setDetailedMedicationInfo([]);
-      reset(); 
-      setSelectedFile(null); setSelectedFileName(null);
-      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
-      setImagePreviewUrl(null);
+      } else if (result.info) { // Handle cases like content blocked by Gemini
+        setExtractedMedicineNames([]);
+        toast({ title: "Analysis Information", description: result.info, variant: "default", duration: 7000});
+      } else {
+        setExtractedMedicineNames([]);
+        toast({ title: "Analysis Issue", description: "No medicines were extracted or an unexpected response was received.", variant: "destructive" });
+      }
+
+    } catch (error: any) {
+      console.error("PrescriptionUploadForm onSubmit: Error during upload or analysis.", error);
+      toast({ title: "Upload & Analysis Failed", description: error.message || "An unexpected error occurred.", variant: "destructive" });
+      setIsUploading(false);
+      setIsAnalyzingWithCloudFunction(false);
+      setExtractedMedicineNames([]);
+      // Optionally reset form on critical errors
+      // reset();
+      // setSelectedFile(null); setSelectedFileName(null);
+      // if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+      // setImagePreviewUrl(null);
     }
   };
   
-  const currentLoadingStep = isUploading ? "Uploading image to secure storage..." : isAnalyzingText ? "Extracting text from image using AI..." : isFetchingMedInfo ? "Fetching detailed medicine information..." : null;
+  const currentLoadingStep = isUploading ? "Uploading image to secure storage..." : isAnalyzingWithCloudFunction ? "Analyzing image with AI (Cloud Function)..." : null;
   const canSubmit = !!selectedFile && !currentLoadingStep;
 
   return (
     <Card id="upload" className="w-full shadow-lg">
       <CardHeader>
         <CardTitle className="text-xl">Upload Prescription</CardTitle>
-        <CardDescription>Securely upload your prescription (JPEG, PNG, PDF - max 10MB). Our AI will analyze it for you.</CardDescription>
+        <CardDescription>Securely upload your prescription (JPG, PNG - max 10MB). Our AI will analyze it for you.</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -299,7 +251,7 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
                         <UploadCloud className="w-10 h-10 mb-3 text-muted-foreground" />
                         <p className="mb-2 text-sm text-muted-foreground"><span className="font-semibold text-primary">Click to upload</span> or drag and drop</p>
-                        <p className="text-xs text-muted-foreground">JPEG, PNG, PDF (MAX. 10MB)</p>
+                        <p className="text-xs text-muted-foreground">JPEG, PNG (MAX. 10MB)</p>
                     </div>
                     <Input 
                       id="prescriptionFile-input" 
@@ -307,7 +259,7 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
                       className="hidden"
                       {...register("prescriptionFile")}
                       onChange={handleFileChange}
-                      accept={ALLOWED_FILE_TYPES.join(",")} 
+                      accept="image/jpeg, image/png" // Simplified accept for direct image analysis
                       disabled={!!currentLoadingStep}
                     />
                 </label>
@@ -318,7 +270,7 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
               <div className="mt-4 p-3 border rounded-md bg-muted/30 text-center">
                 <FileText className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
                 <p className="text-sm font-medium text-foreground">{selectedFileName}</p>
-                <p className="text-xs text-muted-foreground">(PDF selected - no direct preview)</p>
+                <p className="text-xs text-muted-foreground">(File selected - preview might not be available for all types)</p>
               </div>
             )}
 
@@ -343,71 +295,23 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
           </Button>
         </form>
 
-        {(analysisResult || detailedMedicationInfo.length > 0) && (
+        {extractedMedicineNames.length > 0 && (
           <div className="mt-6 space-y-4">
-            <h3 className="text-lg font-semibold text-foreground">AI Analysis Results (Review Below):</h3>
-            {analysisResult && (
-                <div className={`flex items-center p-3 rounded-md ${analysisResult.ocrConfidence > 0.7 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'} border mb-4`}>
-                    {analysisResult.ocrConfidence > 0.7 ? <CheckCircle className="h-5 w-5 text-green-500 mr-2 shrink-0" /> : <AlertCircle className="h-5 w-5 text-amber-500 mr-2 shrink-0" />}
-                    <p className="text-sm">
-                    AI Extraction Confidence for text: <span className={`font-medium ${analysisResult.ocrConfidence > 0.7 ? 'text-green-700' : 'text-amber-700'}`}>{(analysisResult.ocrConfidence * 100).toFixed(1)}%</span>.
-                    {analysisResult.ocrConfidence <= 0.7 && " Please verify extracted text carefully."}
-                    </p>
-                </div>
-            )}
-
-            {detailedMedicationInfo.length > 0 ? (
-              <Accordion type="multiple" className="w-full space-y-3">
-                {detailedMedicationInfo.map((med, index) => (
-                  <AccordionItem value={`med-${index}`} key={index} className="border rounded-md shadow-sm bg-card overflow-hidden">
-                    <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/50">
-                      <div className="flex items-center gap-2 text-base">
-                        <Pill className="h-5 w-5 text-primary" /> 
-                        <span className="font-medium">{med.name}</span>
-                        {med.isLoadingInfo && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground ml-2" />}
-                      </div>
-                    </AccordionTrigger>
-                    <AccordionContent className="px-4 pt-2 pb-4 space-y-3 bg-background/30">
-                      <p className="text-sm"><span className="font-semibold text-muted-foreground">Dosage:</span> {med.dosage}</p>
-                      <p className="text-sm"><span className="font-semibold text-muted-foreground">Frequency:</span> {med.frequency}</p>
-                      {med.info && (
-                        <div className="mt-3 pt-3 border-t space-y-2">
-                          <div>
-                            <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5"><BookOpen size={14}/> Overview:</h4>
-                            <p className="text-xs text-muted-foreground pl-1">{med.info.overview}</p>
-                          </div>
-                          <div>
-                            <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5"><ListChecks size={14}/> Common Uses:</h4>
-                            <ul className="list-disc list-inside text-xs text-muted-foreground pl-2">
-                              {med.info.commonUses.map((use, i) => <li key={i}>{use}</li>)}
-                            </ul>
-                          </div>
-                           <div>
-                            <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5"><Info size={14}/>General Dosage Info:</h4>
-                            <p className="text-xs text-muted-foreground pl-1">{med.info.generalDosageInformation}</p>
-                          </div>
-                          <div>
-                            <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5"><ShieldAlert size={14}/> Common Precautions:</h4>
-                            <ul className="list-disc list-inside text-xs text-muted-foreground pl-2">
-                              {med.info.commonPrecautions.map((caution, i) => <li key={i}>{caution}</li>)}
-                            </ul>
-                          </div>
-                          <div className="mt-2 p-2 border border-amber-500 bg-amber-50 rounded-md">
-                            <p className="text-xs text-amber-700 font-medium">Disclaimer:</p>
-                            <p className="text-xs text-amber-600">{med.info.disclaimer}</p>
-                          </div>
-                        </div>
-                      )}
-                       {!med.info && !med.isLoadingInfo && <p className="text-xs text-destructive">Could not load detailed information for this medicine.</p>}
-                    </AccordionContent>
-                  </AccordionItem>
-                ))}
-              </Accordion>
-            ) : (
-              !isUploading && !isAnalyzingText && !isFetchingMedInfo && analysisResult && <p className="text-sm text-muted-foreground">No medication details extracted by AI, or details are still loading.</p>
-            )}
-            { detailedMedicationInfo.length > 0 && <p className="text-xs text-muted-foreground pt-2 text-center">Please verify these details. You can edit them from the main list view after verification.</p>}
+            <h3 className="text-lg font-semibold text-foreground">Extracted Medicine Names:</h3>
+            <Card className="bg-background/50 p-4">
+                <ul className="list-disc list-inside space-y-1">
+                    {extractedMedicineNames.map((name, index) => (
+                        <li key={index} className="text-sm text-foreground">{name}</li>
+                    ))}
+                </ul>
+            </Card>
+            <p className="text-xs text-muted-foreground pt-2 text-center">
+                Please verify these extracted names. You can edit them and add dosages/frequencies in the Insights Hub after this initial extraction.
+            </p>
           </div>
+        )}
+        {!currentLoadingStep && selectedFile && extractedMedicineNames.length === 0 && (
+             <p className="mt-4 text-sm text-muted-foreground text-center">No medicines extracted, or analysis did not return any specific names.</p>
         )}
       </CardContent>
     </Card>

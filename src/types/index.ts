@@ -9,9 +9,9 @@ export interface MedicineInfo {
 
 export interface MedicationDetail {
   name: string;
-  dosage: string;
-  frequency: string;
-  info?: MedicineInfo; // Added to store detailed info
+  dosage: string; // May be empty if only name is extracted by new Python CF
+  frequency: string; // May be empty if only name is extracted by new Python CF
+  info?: MedicineInfo; // This will not be populated by the new Python CF flow
 }
 
 export interface Prescription {
@@ -19,8 +19,8 @@ export interface Prescription {
   fileName: string;
   uploadDate: string; // ISO string
   status: 'pending' | 'verified' | 'needs_correction' | 'analyzing' | 'error';
-  extractedMedications?: MedicationDetail[];
-  ocrConfidence?: number;
+  extractedMedications?: MedicationDetail[]; // Will contain name, dosage/freq will be initially empty from Python CF
+  ocrConfidence?: number; // This field might not be available from the new Python CF.
   doctor?: string;
   patientName?: string;
   fileUrl?: string; 
@@ -98,5 +98,9 @@ export interface DoctorNote {
 
 
 // For AI flow outputs, if they are directly used in components without mapping
-export type { AnalyzeSymptomsOutput } from '@/ai/flows/analyze-symptoms';
-export type { ExtractMedicationDetailsOutput } from '@/ai/flows/extract-medication-details';
+// These Genkit types are no longer directly used by PrescriptionUploadForm
+// export type { AnalyzeSymptomsOutput } from '@/ai/flows/analyze-symptoms';
+// export type { ExtractMedicationDetailsOutput } from '@/ai/flows/extract-medication-details';
+
+
+    
