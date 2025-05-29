@@ -11,7 +11,7 @@ import {
   signInWithEmailAndPassword,
   updateProfile as updateFirebaseProfile
 } from 'firebase/auth';
-import { auth, db } from '@/lib/firebase'; // Ensure db is correctly imported if used here
+import { auth, db } from '@/lib/firebase'; // Ensure db is correctly imported
 import { doc, getDoc, setDoc, collection, addDoc, updateDoc, deleteDoc, query, orderBy, onSnapshot, Unsubscribe } from 'firebase/firestore';
 
 interface AuthContextType {
@@ -45,24 +45,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const fetchUserProfileData = useCallback(async (user: FirebaseUser): Promise<UserProfile | null> => {
     if (!db) {
-      console.error("AuthContext: Firestore instance (db) is not available for fetchUserProfileData.");
+      console.error("AuthContext (fetchUserProfileData): Firestore instance (db) is not available.");
       return null;
     }
     const userDocRef = doc(db, "users", user.uid);
-    console.log(`AuthContext: Fetching profile for user ${user.uid}`);
+    console.log(`AuthContext (fetchUserProfileData): Fetching profile for user ${user.uid}`);
     try {
       const userDocSnap = await getDoc(userDocRef);
       let profileData: UserProfile;
 
       if (userDocSnap.exists()) {
-        console.log(`AuthContext: Profile found for user ${user.uid}.`);
+        console.log(`AuthContext (fetchUserProfileData): Profile found for user ${user.uid}.`);
         profileData = userDocSnap.data() as UserProfile;
-        if (!profileData.healthGoals) profileData.healthGoals = []; // Ensure healthGoals array exists
-        // Ensure AI preferences are initialized with defaults if partially set or missing
+        if (!profileData.healthGoals) profileData.healthGoals = [];
         profileData.aiFeedbackPreferences = { ...initialDefaultAiPreferences, ...(profileData.aiFeedbackPreferences || {}) };
 
       } else {
-        console.log(`AuthContext: No profile found for user ${user.uid}. Creating new profile.`);
+        console.log(`AuthContext (fetchUserProfileData): No profile found for user ${user.uid}. Creating new profile.`);
         profileData = {
           id: user.uid,
           email: user.email || undefined,
@@ -72,15 +71,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           dateOfBirth: undefined,
           allergies: [],
           riskFactors: {},
-          // Initialize other fields as needed
         };
         await setDoc(userDocRef, profileData);
-        console.log(`AuthContext: New profile created in Firestore for user ${user.uid}.`);
+        console.log(`AuthContext (fetchUserProfileData): New profile created in Firestore for user ${user.uid}.`);
       }
       return profileData;
     } catch (error) {
-        console.error("AuthContext: Error fetching/creating user profile in Firestore:", error);
-        return null; // Return null if Firestore operation fails
+        console.error("AuthContext (fetchUserProfileData): Error fetching/creating user profile in Firestore:", error);
+        return null;
     }
   }, []);
 
@@ -89,70 +87,73 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     let userProfileUnsubscribe: Unsubscribe | undefined;
     let healthGoalsUnsubscribe: Unsubscribe | undefined;
 
-    console.log("AuthContext: Setting up onAuthStateChanged listener.");
+    console.log("AuthContext (useEffect): Setting up onAuthStateChanged listener.");
     const authUnsubscribe = onAuthStateChanged(auth, async (user) => {
-      console.log("AuthContext: onAuthStateChanged triggered. User:", user ? user.uid : 'null');
-      setIsLoading(true); // Set loading true at the start of auth state change
+      console.log("AuthContext (onAuthStateChanged): Auth state changed. User UID:", user ? user.uid : 'null');
+      setIsLoading(true);
 
-      // Clean up previous listeners
-      if (userProfileUnsubscribe) userProfileUnsubscribe();
-      if (healthGoalsUnsubscribe) healthGoalsUnsubscribe();
+      if (userProfileUnsubscribe) {
+        console.log("AuthContext (onAuthStateChanged): Unsubscribing from previous user profile listener.");
+        userProfileUnsubscribe();
+      }
+      if (healthGoalsUnsubscribe) {
+        console.log("AuthContext (onAuthStateChanged): Unsubscribing from previous health goals listener.");
+        healthGoalsUnsubscribe();
+      }
 
       if (user) {
-        setFirebaseUser(user); // Set Firebase user immediately
+        setFirebaseUser(user);
         const profile = await fetchUserProfileData(user);
-        setUserProfile(profile); // This can be null if fetchUserProfileData fails
+        setUserProfile(profile);
 
-        if (profile && db) { // Only set up listeners if profile was fetched and db is available
-            // Listener for main user profile document (for AI preferences, etc.)
+        if (profile && db) {
             const userDocRef = doc(db, "users", user.uid);
-            console.log(`AuthContext: Subscribing to profile changes for user ${user.uid}`);
+            console.log(`AuthContext (onAuthStateChanged): Subscribing to profile changes for user ${user.uid}`);
             userProfileUnsubscribe = onSnapshot(userDocRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const updatedProfile = docSnap.data() as UserProfile;
                     setUserProfile(prev => ({
-                        ...(prev || updatedProfile), // Keep existing healthGoals if already fetched
+                        ...(prev || updatedProfile),
                         ...updatedProfile,
                          aiFeedbackPreferences: { ...initialDefaultAiPreferences, ...(updatedProfile.aiFeedbackPreferences || {}) },
                     }));
-                    console.log(`AuthContext: Profile updated for user ${user.uid} via snapshot.`);
+                    console.log(`AuthContext (onSnapshot userDoc): Profile updated for user ${user.uid}.`);
                 } else {
-                     console.warn(`AuthContext: Profile doc for ${user.uid} disappeared during onSnapshot listener.`);
-                     setUserProfile(null); // Or handle re-creation if necessary
+                     console.warn(`AuthContext (onSnapshot userDoc): Profile doc for ${user.uid} disappeared.`);
+                     setUserProfile(null);
                 }
             }, (error) => {
-                console.error(`AuthContext: Error listening to user profile for ${user.uid}:`, error);
+                console.error(`AuthContext (onSnapshot userDoc): Error listening to user profile for ${user.uid}:`, error);
                 setUserProfile(null);
             });
 
-            // Listener for health goals subcollection
             const goalsColRef = collection(db, `users/${user.uid}/healthGoals`);
-            const q = query(goalsColRef, orderBy("description")); // Example ordering
-            console.log(`AuthContext: Subscribing to health goals for user ${user.uid}`);
+            const q = query(goalsColRef, orderBy("description"));
+            console.log(`AuthContext (onAuthStateChanged): Subscribing to health goals for user ${user.uid}`);
             healthGoalsUnsubscribe = onSnapshot(q, (snapshot) => {
                 const goals: HealthGoal[] = [];
                 snapshot.forEach(doc => goals.push({ id: doc.id, ...doc.data() } as HealthGoal));
                 setUserProfile(prevProfile => prevProfile ? { ...prevProfile, healthGoals: goals } : null);
-                console.log(`AuthContext: Health goals updated for user ${user.uid} via snapshot. Count: ${goals.length}`);
+                console.log(`AuthContext (onSnapshot healthGoals): Health goals updated for user ${user.uid}. Count: ${goals.length}`);
             }, (error) => {
-                console.error(`AuthContext: Error listening to health goals for ${user.uid}:`, error);
+                console.error(`AuthContext (onSnapshot healthGoals): Error listening to health goals for ${user.uid}:`, error);
                 setUserProfile(prevProfile => prevProfile ? { ...prevProfile, healthGoals: [] } : null);
             });
         } else if (!profile) {
-            console.warn(`AuthContext: No profile fetched for user ${user.uid}, listeners not set up.`);
+            console.warn(`AuthContext (onAuthStateChanged): No profile fetched for user ${user.uid}, Firestore listeners not set up.`);
         }
 
       } else {
-        console.log("AuthContext: User is signed out by onAuthStateChanged.");
+        console.log("AuthContext (onAuthStateChanged): User is signed out.");
         setFirebaseUser(null);
         setUserProfile(null);
       }
-      setIsLoading(false); // Set loading false after all processing for this auth state
-      console.log(`AuthContext: setIsLoading(false). isAuthenticated: ${!!user && !!userProfile}`);
+      setIsLoading(false);
+      console.log(`AuthContext (onAuthStateChanged): Processing complete. isLoading: false. isAuthenticated: ${!!user && !!userProfile}`);
     });
 
     return () => {
-      console.log("AuthContext: Cleaning up onAuthStateChanged listener and Firestore subscriptions.");
+      console.log("AuthContext (useEffect cleanup): Cleaning up onAuthStateChanged listener and Firestore subscriptions.");
       authUnsubscribe();
       if (userProfileUnsubscribe) userProfileUnsubscribe();
       if (healthGoalsUnsubscribe) healthGoalsUnsubscribe();
@@ -161,20 +162,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
 
   const signUpWithEmailPassword = async (email: string, password: string, name: string): Promise<boolean> => {
-    console.log(`AuthContext: Attempting signUpWithEmailPassword for email: ${email}`);
+    console.log(`AuthContext (signUpWithEmailPassword): Attempting sign up for email: ${email}, name: ${name}`);
     setIsLoading(true);
     if (!auth || !db) {
-      console.error("AuthContext: Auth or DB not initialized for signUpWithEmailPassword.");
+      console.error("AuthContext (signUpWithEmailPassword): Auth or DB not initialized.");
       setIsLoading(false);
       throw new Error("Signup service not available. Please try again later.");
     }
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      console.log(`AuthContext: Firebase user created: ${userCredential.user.uid}`);
+      console.log(`AuthContext (signUpWithEmailPassword): Firebase user CREATED. UID: ${userCredential.user.uid}`);
 
       if (userCredential.user) {
         await updateFirebaseProfile(userCredential.user, { displayName: name });
-        console.log(`AuthContext: Firebase profile display name updated for ${userCredential.user.uid}.`);
+        console.log(`AuthContext (signUpWithEmailPassword): Firebase profile display name UPDATED for UID: ${userCredential.user.uid}.`);
 
         const newUserProfile: UserProfile = {
           id: userCredential.user.uid,
@@ -188,29 +189,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         };
         const userDocRef = doc(db, "users", userCredential.user.uid);
         await setDoc(userDocRef, newUserProfile);
-        console.log(`AuthContext: Firestore profile document created for ${userCredential.user.uid}.`);
-        // setUserProfile(newUserProfile); // Optimistic update, onAuthStateChanged will also fetch
+        console.log(`AuthContext (signUpWithEmailPassword): Firestore profile document CREATED for UID: ${userCredential.user.uid}.`);
       }
-      // onAuthStateChanged will handle setting firebaseUser and userProfile globally,
-      // and also setting isLoading to false eventually.
-      // We set isLoading to false here if we want quicker UI response,
-      // but onAuthStateChanged is the ultimate source of truth for auth state.
-      // For now, let onAuthStateChanged handle the final setIsLoading(false).
-      // setIsLoading(false); // Can be set here, or rely on onAuthStateChanged
-      console.log("AuthContext: signUpWithEmailPassword successful.");
+      // onAuthStateChanged will handle setting firebaseUser and userProfile globally.
+      console.log("AuthContext (signUpWithEmailPassword): Sign up successful. Waiting for onAuthStateChanged to finalize state.");
+      // Let onAuthStateChanged handle final isLoading state.
       return true;
     } catch (error: any) {
-      console.error(`AuthContext: Error during signUpWithEmailPassword for ${email}. Code: ${error.code}, Message: ${error.message}`, error);
-      setIsLoading(false);
+      console.error(`AuthContext (signUpWithEmailPassword): Error during sign up for ${email}. Code: ${error.code}, Message: ${error.message}`, error);
+      setIsLoading(false); // Ensure loading is set to false on error
       throw error; // Re-throw for the UI component to handle (e.g., show specific error toast)
     }
   };
 
   const loginWithEmailPassword = async (email: string, password: string): Promise<boolean> => {
-    console.log(`AuthContext: Attempting loginWithEmailPassword for email: ${email}`);
+    console.log(`AuthContext (loginWithEmailPassword): Attempting login for email: ${email}`);
     setIsLoading(true);
     if (!auth) {
-      console.error("AuthContext: Auth not initialized for loginWithEmailPassword.");
+      console.error("AuthContext (loginWithEmailPassword): Auth not initialized.");
       setIsLoading(false);
       // It's better to throw an error if auth isn't available, caught by calling component
       throw new Error("AuthContext: Authentication service not available.");
@@ -218,141 +214,127 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       // onAuthStateChanged will handle setting firebaseUser, userProfile, and final isLoading.
-      // setIsLoading(false); // Let onAuthStateChanged handle this for consistency
-      console.log("AuthContext: loginWithEmailPassword successful. Waiting for onAuthStateChanged.");
+      console.log(`AuthContext (loginWithEmailPassword): Firebase signInWithEmailAndPassword SUCCEEDED for ${email}. Waiting for onAuthStateChanged.`);
+      // Let onAuthStateChanged handle final isLoading state.
       return true;
     } catch (error: any) {
-      console.error(`AuthContext: Firebase signInWithEmailAndPassword error for ${email}. Code: ${error.code}, Message: ${error.message}`, error);
+      console.error(`AuthContext (loginWithEmailPassword): Firebase signInWithEmailAndPassword FAILED for ${email}. Code: ${error.code}, Message: ${error.message}. Firebase error object:`, error);
       setIsLoading(false);
       return false; // Indicate failure to the calling component for generic error message
     }
   };
 
   const logout = async () => {
-    console.log("AuthContext: Attempting logout.");
+    console.log("AuthContext (logout): Attempting logout.");
     setIsLoading(true);
     if (!auth) {
-      console.error("AuthContext: Auth not initialized for logout.");
+      console.error("AuthContext (logout): Auth not initialized.");
       setIsLoading(false);
       return;
     }
     try {
       await signOut(auth);
+      console.log("AuthContext (logout): Logout successful. Waiting for onAuthStateChanged to clear user state.");
       // onAuthStateChanged will set firebaseUser and userProfile to null
-      // and also handle setIsLoading(false)
-      console.log("AuthContext: Logout successful. Waiting for onAuthStateChanged.");
     } catch (error) {
-      console.error("AuthContext: Logout error:", error);
+      console.error("AuthContext (logout): Logout error:", error);
       setIsLoading(false); // Ensure loading is false if signOut itself errors
     }
   };
 
   const updateUserProfileState = async (updatedProfileData: Partial<UserProfile>) => {
     if (!firebaseUser || !db || !userProfile) {
-      console.warn("AuthContext: Cannot update user profile state. User not authenticated, DB not available, or profile not loaded.");
+      console.warn("AuthContext (updateUserProfileState): Cannot update. User not authenticated, DB not available, or profile not loaded.");
       return;
     }
-    console.log(`AuthContext: Attempting to update user profile in Firestore for ${firebaseUser.uid}.`);
+    console.log(`AuthContext (updateUserProfileState): Attempting to update Firestore profile for ${firebaseUser.uid}.`);
     try {
       const userDocRef = doc(db, "users", firebaseUser.uid);
-      // Make sure not to overwrite healthGoals if it's managed by a separate listener or not included
       const { healthGoals, ...profileToUpdate } = updatedProfileData;
       await updateDoc(userDocRef, profileToUpdate);
-      // Optimistic update locally or rely on onSnapshot from useEffect
-      // setUserProfile(prev => prev ? { ...prev, ...profileToUpdate } : null);
-      console.log(`AuthContext: User profile updated in Firestore for user ${firebaseUser.uid}.`);
+      console.log(`AuthContext (updateUserProfileState): Firestore profile updated for user ${firebaseUser.uid}.`);
     } catch (error) {
-      console.error(`AuthContext: Error updating user profile in Firestore for ${firebaseUser.uid}:`, error);
+      console.error(`AuthContext (updateUserProfileState): Error updating Firestore profile for ${firebaseUser.uid}:`, error);
     }
   };
 
   const addHealthGoal = async (goalData: Omit<HealthGoal, 'id' | 'userId'>): Promise<HealthGoal | null> => {
     if (!firebaseUser || !db) {
-      console.warn("AuthContext: Cannot add health goal. User not authenticated or DB not available.");
+      console.warn("AuthContext (addHealthGoal): Cannot add. User not authenticated or DB not available.");
       return null;
     }
-    console.log(`AuthContext: Adding health goal for user ${firebaseUser.uid}.`);
+    console.log(`AuthContext (addHealthGoal): Adding health goal for user ${firebaseUser.uid}.`);
     try {
       const goalsColRef = collection(db, `users/${firebaseUser.uid}/healthGoals`);
-      const newGoalData = { ...goalData, userId: firebaseUser.uid }; // Ensure userId is set
+      const newGoalData = { ...goalData, userId: firebaseUser.uid };
       const docRef = await addDoc(goalsColRef, newGoalData);
-      console.log(`AuthContext: Health goal added for user ${firebaseUser.uid} with ID ${docRef.id}.`);
-      // onSnapshot in useEffect will update the local state
+      console.log(`AuthContext (addHealthGoal): Health goal added for user ${firebaseUser.uid} with ID ${docRef.id}.`);
       return { id: docRef.id, ...newGoalData };
     } catch (error) {
-      console.error(`AuthContext: Error adding health goal for ${firebaseUser.uid}:`, error);
+      console.error(`AuthContext (addHealthGoal): Error adding health goal for ${firebaseUser.uid}:`, error);
       return null;
     }
   };
 
   const updateHealthGoal = async (updatedGoal: HealthGoal) => {
     if (!firebaseUser || !db || !updatedGoal.id) {
-      console.warn("AuthContext: Cannot update health goal. Invalid parameters.");
+      console.warn("AuthContext (updateHealthGoal): Cannot update. Invalid parameters.");
       return;
     }
-     console.log(`AuthContext: Updating health goal ID ${updatedGoal.id} for user ${firebaseUser.uid}.`);
+     console.log(`AuthContext (updateHealthGoal): Updating health goal ID ${updatedGoal.id} for user ${firebaseUser.uid}.`);
     try {
       const goalDocRef = doc(db, `users/${firebaseUser.uid}/healthGoals`, updatedGoal.id);
-      // Ensure userId is not part of the data being updated if it's already in the path
       const { id, userId, ...dataToUpdate } = updatedGoal;
       await updateDoc(goalDocRef, dataToUpdate);
-      console.log(`AuthContext: Health goal updated for user ${firebaseUser.uid}, goal ID ${id}.`);
-      // onSnapshot will update local state
+      console.log(`AuthContext (updateHealthGoal): Health goal updated for user ${firebaseUser.uid}, goal ID ${id}.`);
     } catch (error) {
-      console.error(`AuthContext: Error updating health goal for ${firebaseUser.uid}, goal ID ${updatedGoal.id}:`, error);
+      console.error(`AuthContext (updateHealthGoal): Error updating health goal for ${firebaseUser.uid}, goal ID ${updatedGoal.id}:`, error);
     }
   };
 
   const deleteHealthGoal = async (goalId: string) => {
     if (!firebaseUser || !db) {
-      console.warn("AuthContext: Cannot delete health goal. User not authenticated or DB not available.");
+      console.warn("AuthContext (deleteHealthGoal): Cannot delete. User not authenticated or DB not available.");
       return;
     }
-    console.log(`AuthContext: Deleting health goal ID ${goalId} for user ${firebaseUser.uid}.`);
+    console.log(`AuthContext (deleteHealthGoal): Deleting health goal ID ${goalId} for user ${firebaseUser.uid}.`);
     try {
         const goalDocRef = doc(db, `users/${firebaseUser.uid}/healthGoals`, goalId);
         await deleteDoc(goalDocRef);
-        console.log(`AuthContext: Health goal deleted for user ${firebaseUser.uid}, goal ID ${goalId}.`);
-        // onSnapshot will update local state
+        console.log(`AuthContext (deleteHealthGoal): Health goal deleted for user ${firebaseUser.uid}, goal ID ${goalId}.`);
     } catch (error) {
-        console.error(`AuthContext: Error deleting health goal for ${firebaseUser.uid}, goal ID ${goalId}:`, error);
+        console.error(`AuthContext (deleteHealthGoal): Error deleting health goal for ${firebaseUser.uid}, goal ID ${goalId}:`, error);
     }
   };
 
   const updateAiPreferences = async (preferences: Partial<AiFeedbackPreferences>) => {
-    if (!firebaseUser || !db || !userProfile) { // Check userProfile as well to ensure currentAiPreferences can be formed
-      console.warn("AuthContext: Cannot update AI preferences. Invalid parameters or profile not loaded.");
+    if (!firebaseUser || !db || !userProfile) {
+      console.warn("AuthContext (updateAiPreferences): Cannot update. Invalid parameters or profile not loaded.");
       return;
     }
-    console.log(`AuthContext: Updating AI preferences for user ${firebaseUser.uid}.`);
+    console.log(`AuthContext (updateAiPreferences): Updating AI preferences for user ${firebaseUser.uid}.`);
     try {
       const userDocRef = doc(db, "users", firebaseUser.uid);
-      // Merge with existing or default AI preferences before updating
       const newAiPreferences = { ...(userProfile.aiFeedbackPreferences || initialDefaultAiPreferences), ...preferences };
       await updateDoc(userDocRef, { aiFeedbackPreferences: newAiPreferences });
-      console.log(`AuthContext: AI preferences updated in Firestore for user ${firebaseUser.uid}.`);
-      // onSnapshot will update local state for userProfile.aiFeedbackPreferences
+      console.log(`AuthContext (updateAiPreferences): AI preferences updated in Firestore for user ${firebaseUser.uid}.`);
     } catch (error) {
-      console.error(`AuthContext: Error updating AI preferences for ${firebaseUser.uid}:`, error);
+      console.error(`AuthContext (updateAiPreferences): Error updating AI preferences for ${firebaseUser.uid}:`, error);
     }
   };
 
-  // This function might not be strictly necessary if onSnapshot for healthGoals is robust
-  // It can be useful for explicit refresh actions if ever needed.
   const fetchHealthGoals = useCallback(async () => {
     if (!firebaseUser || !db) {
-        console.warn("AuthContext: Cannot fetch health goals. User not authenticated or DB not available.");
+        console.warn("AuthContext (fetchHealthGoals): Cannot fetch. User not authenticated or DB not available.");
         return;
     }
-    // For now, onSnapshot handles live updates for health goals.
-    // If an explicit fetch and replace is needed, implement here.
-    console.log(`AuthContext: Explicit fetchHealthGoals called for ${firebaseUser.uid}. Relying on onSnapshot primarily.`);
+    console.log(`AuthContext (fetchHealthGoals): Explicit fetchHealthGoals called for ${firebaseUser.uid}. Relying on onSnapshot primarily.`);
   }, [firebaseUser]);
 
 
   return (
     <AuthContext.Provider value={{
-      isAuthenticated: !!firebaseUser && !!userProfile, // Profile must also exist
+      isAuthenticated: !!firebaseUser && !!userProfile,
       firebaseUser,
       userProfile,
       signUpWithEmailPassword,
@@ -378,4 +360,3 @@ export const useAuth = () => {
   }
   return context;
 };
-
