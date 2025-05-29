@@ -13,7 +13,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Loader2, UploadCloud, FileText, CheckCircle, AlertCircle, Pill, Info, ListChecks, ShieldAlert, BookOpen } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { extractMedicationDetails, ExtractMedicationDetailsOutput } from '@/ai/flows/extract-medication-details';
-import { getMedicineInfo, GetMedicineInfoOutput } from '@/ai/flows/get-medicine-info-flow'; // Import new flow
+import { getMedicineInfo, GetMedicineInfoOutput } from '@/ai/flows/get-medicine-info-flow';
 import type { Prescription, MedicationDetail, MedicineInfo } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { db, storage } from '@/lib/firebase';
@@ -37,8 +37,7 @@ const PrescriptionUploadSchema = z.object({
 type PrescriptionUploadFormValues = z.infer<typeof PrescriptionUploadSchema>;
 
 interface ExtendedMedicationDetail extends MedicationDetail {
-  info?: MedicineInfo;
-  isLoadingInfo?: boolean; // To show loading state for individual med info fetching
+  isLoadingInfo?: boolean;
 }
 
 interface PrescriptionUploadFormProps {
@@ -78,12 +77,13 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
       return;
     }
     setIsUploading(true);
+    setIsAnalyzingText(false);
+    setIsFetchingMedInfo(false);
     setAnalysisResult(null);
     setDetailedMedicationInfo([]);
     const file = data.prescriptionFile[0];
 
     try {
-      // 1. Upload file to Firebase Storage
       const storageFilePath = `users/${firebaseUser.uid}/prescriptions/${Date.now()}_${file.name}`;
       const storageRef = ref(storage, storageFilePath);
       await uploadBytes(storageRef, file);
@@ -91,50 +91,68 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
       setIsUploading(false);
       setIsAnalyzingText(true);
 
-      // 2. Get Base64 data for AI analysis
       const reader = new FileReader();
       reader.readAsDataURL(file);
       reader.onloadend = async () => {
         const base64data = reader.result as string;
         try {
-          // 3. Call AI Flow to extract medication text
           const textExtractionResult = await extractMedicationDetails({ prescriptionDataUri: base64data });
           setAnalysisResult(textExtractionResult);
           setIsAnalyzingText(false);
 
-          let processedMedications: MedicationDetail[] = [];
+          let processedMedicationsForFirestore: MedicationDetail[] = textExtractionResult.medicationDetails || [];
 
           if (textExtractionResult.medicationDetails && textExtractionResult.medicationDetails.length > 0) {
             setIsFetchingMedInfo(true);
-            const extendedMeds: ExtendedMedicationDetail[] = textExtractionResult.medicationDetails.map(med => ({ ...med, isLoadingInfo: true }));
-            setDetailedMedicationInfo(extendedMeds); // Show initial meds with loading state
+            // Initialize UI with loading state for all meds
+            const initialMedsWithLoadingState: ExtendedMedicationDetail[] = textExtractionResult.medicationDetails.map(med => ({
+              ...med,
+              isLoadingInfo: true,
+              info: undefined // Ensure info is initially undefined
+            }));
+            setDetailedMedicationInfo(initialMedsWithLoadingState);
 
-            const medicationInfoPromises = textExtractionResult.medicationDetails.map(async (med, index) => {
+            const medicationProcessingPromises = textExtractionResult.medicationDetails.map(async (med) => {
               try {
-                const info = await getMedicineInfo({ medicineName: med.name });
-                return { ...med, info };
+                const infoResult = await getMedicineInfo({ medicineName: med.name });
+                return { ...med, info: infoResult, isLoadingInfo: false };
               } catch (infoError) {
                 console.error(`Error fetching info for ${med.name}:`, infoError);
                 toast({ title: "Info Fetch Error", description: `Could not fetch detailed information for ${med.name}.`, variant: "destructive", duration: 3000 });
-                return { ...med, info: undefined }; // Keep med, but no info
-              } finally {
-                 // Update specific medication with its fetched info or lack thereof, and stop its loading
-                setDetailedMedicationInfo(prev => prev.map((m, i) => i === index ? { ...m, isLoadingInfo: false, info: (prev[i].info || (await medicationInfoPromises[i])?.info) } : m));
+                return { ...med, info: undefined, isLoadingInfo: false };
               }
             });
-            processedMedications = await Promise.all(medicationInfoPromises);
-            setDetailedMedicationInfo(processedMedications.map(med => ({...med, isLoadingInfo: false}))); // Final update with all loading states false
+
+            const settledResults = await Promise.allSettled(medicationProcessingPromises);
+            
+            const finalMedicationDetails: ExtendedMedicationDetail[] = settledResults.map((result, index) => {
+              if (result.status === 'fulfilled') {
+                return result.value;
+              } else {
+                // Handle rejected promise (error during getMedicineInfo)
+                // The original medication detail from textExtractionResult.medicationDetails[index] is used
+                return {
+                  ...(textExtractionResult.medicationDetails?.[index] || { name: 'Unknown', dosage: '', frequency: '' }), // Fallback
+                  info: undefined,
+                  isLoadingInfo: false
+                };
+              }
+            });
+
+            setDetailedMedicationInfo(finalMedicationDetails);
+            processedMedicationsForFirestore = finalMedicationDetails.map(med => {
+              const { isLoadingInfo, ...rest } = med; // Strip UI-only field
+              return rest;
+            });
             setIsFetchingMedInfo(false);
           }
 
-
-          // 4. Save metadata to Firestore
           const prescriptionDoc: Omit<Prescription, 'id'> = {
             userId: firebaseUser.uid,
             fileName: file.name,
             uploadDate: new Date().toISOString(),
             status: 'needs_correction',
-            extractedMedications: processedMedications, // Save enriched medication details
+            extractedMedications: processedMedicationsForFirestore,
             ocrConfidence: textExtractionResult.ocrConfidence,
             userVerificationStatus: 'pending',
             imageUrl: imageUrl,
@@ -151,13 +169,16 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
           });
           reset(); 
           setSelectedFileName(null);
-          // Do not reset detailedMedicationInfo here, it's shown in the UI until next upload.
+          // Keep analysisResult and detailedMedicationInfo for display until next upload
 
         } catch (aiError) {
           console.error("AI analysis error:", aiError);
           toast({ title: "AI Analysis Failed", description: "Could not analyze the prescription.", variant: "destructive" });
           setIsAnalyzingText(false);
           setIsFetchingMedInfo(false);
+          // Optionally clear analysisResult and detailedMedicationInfo here if desired on AI error
+          // setAnalysisResult(null);
+          // setDetailedMedicationInfo([]);
         }
       };
       reader.onerror = () => {
@@ -176,7 +197,6 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
   };
   
   const currentLoadingStep = isUploading ? "Uploading image..." : isAnalyzingText ? "Extracting text..." : isFetchingMedInfo ? "Fetching medicine details..." : null;
-
 
   return (
     <Card id="upload" className="w-full shadow-lg">
@@ -275,7 +295,7 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
                 ))}
               </Accordion>
             ) : (
-              !isAnalyzingText && !isFetchingMedInfo && analysisResult && <p className="text-sm text-muted-foreground">No medication details extracted by AI, or details are still loading.</p>
+              !isUploading && !isAnalyzingText && !isFetchingMedInfo && analysisResult && <p className="text-sm text-muted-foreground">No medication details extracted by AI, or details are still loading.</p>
             )}
             { detailedMedicationInfo.length > 0 && <p className="text-xs text-muted-foreground pt-2 text-center">Please verify these details. You can edit them from the main list view after verification.</p>}
           </div>
@@ -284,3 +304,5 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
     </Card>
   );
 }
+
+    
