@@ -53,17 +53,17 @@ export function LoginForm() {
     form.reset({
       email: '',
       password: '',
-      name: isSignUpMode ? '' : undefined, // Explicitly set name or undefined
+      name: isSignUpMode ? '' : undefined, 
     });
   }, [isSignUpMode, form.reset]);
 
 
   const handleSubmitAuth: SubmitHandler<LoginFormValues | SignUpFormValues> = async (data) => {
-    console.log("handleSubmitAuth called. Current isSignUpMode:", isSignUpMode, "Submitting data:", data); // Diagnostic log
+    console.log("handleSubmitAuth called. Current isSignUpMode:", isSignUpMode, "Submitting data:", data); 
     try {
       if (isSignUpMode) {
         const signUpData = data as SignUpFormValues;
-        if (!signUpData.name) { // Defensive check if name field is missing for sign up
+        if (!signUpData.name) { 
           console.error("Sign up attempt missing name field in data:", signUpData);
           toast({
             title: "Sign Up Failed",
@@ -72,13 +72,13 @@ export function LoginForm() {
           });
           return;
         }
-        const success = await signUpWithEmailPassword(signUpData.email, signUpData.password, signUpData.name);
-        if (success) {
-          toast({
-            title: "Sign Up Successful",
-            description: "Welcome to VitaLog Pro! You are now logged in.",
-          });
-        }
+        // signUpWithEmailPassword now re-throws Firebase errors
+        await signUpWithEmailPassword(signUpData.email, signUpData.password, signUpData.name);
+        toast({
+          title: "Sign Up Successful",
+          description: "Welcome to VitaLog Pro! You are now logged in.",
+        });
+        // Successful signup will trigger onAuthStateChanged, leading to redirect
       } else {
         const loginData = data as LoginFormValues;
         const success = await loginWithEmailPassword(loginData.email, loginData.password);
@@ -87,24 +87,36 @@ export function LoginForm() {
             title: "Login Successful",
             description: "Welcome back to VitaLog Pro!",
           });
+          // Successful login will trigger onAuthStateChanged, leading to redirect
+        } else {
+          // loginWithEmailPassword returned false, indicating a Firebase error was caught and handled internally
+          toast({
+            title: "Login Failed",
+            description: "Invalid email or password. Please try again.",
+            variant: "destructive",
+          });
         }
       }
     } catch (error: any) {
-      console.error(`Authentication error in LoginForm. isSignUpMode: ${isSignUpMode}. Error:`, error); // Enhanced log
+      // This catch block will now primarily handle errors from signUpWithEmailPassword
+      // or unexpected errors if loginWithEmailPassword was changed to throw again.
+      console.error(`Authentication error in LoginForm. isSignUpMode: ${isSignUpMode}. Error:`, error);
       let errorMessage = "An unexpected error occurred. Please try again.";
-      if (error.code) {
+      if (error.code) { // Firebase errors have a 'code' property
         switch (error.code) {
-          case 'auth/user-not-found':
-          case 'auth/wrong-password':
-          case 'auth/invalid-credential': // This is typically a login error
-            errorMessage = 'Invalid email or password.';
-            break;
           case 'auth/email-already-in-use':
             errorMessage = 'This email is already registered. Please log in or use a different email.';
             break;
           case 'auth/weak-password':
             errorMessage = 'Password is too weak. It should be at least 6 characters.';
             break;
+          // 'auth/invalid-credential' will be handled by the 'else' in the login path above
+          // if loginWithEmailPassword returns false. If it throws, it would be caught here too.
+          case 'auth/user-not-found':
+          case 'auth/wrong-password':
+          case 'auth/invalid-credential':
+             errorMessage = 'Invalid email or password.';
+             break;
           default:
             errorMessage = error.message || errorMessage;
         }
@@ -132,7 +144,7 @@ export function LoginForm() {
         <CardContent>
           {isClient ? (
             <form 
-              key={isSignUpMode ? 'signup-form' : 'login-form'} // Key to force re-render and re-initialization of RHF
+              key={isSignUpMode ? 'signup-form' : 'login-form'} 
               onSubmit={form.handleSubmit(handleSubmitAuth)} 
               className="space-y-6"
             >
@@ -220,3 +232,4 @@ export function LoginForm() {
     </div>
   );
 }
+
