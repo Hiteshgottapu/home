@@ -40,7 +40,7 @@ export function LoginForm() {
   }, []);
 
   const currentSchema = isSignUpMode ? SignUpSchema : LoginSchema;
-  const form = useForm<LoginFormValues | SignUpFormValues>({ // Union type for values
+  const form = useForm<LoginFormValues | SignUpFormValues>({ 
     resolver: zodResolver(currentSchema),
     defaultValues: {
       email: '',
@@ -49,27 +49,35 @@ export function LoginForm() {
     },
   });
   
-  // Reset form when switching modes
   useEffect(() => {
     form.reset({
       email: '',
       password: '',
-      ...(isSignUpMode && { name: '' }),
+      name: isSignUpMode ? '' : undefined, // Explicitly set name or undefined
     });
-  }, [isSignUpMode, form]);
+  }, [isSignUpMode, form.reset]);
 
 
   const handleSubmitAuth: SubmitHandler<LoginFormValues | SignUpFormValues> = async (data) => {
+    console.log("handleSubmitAuth called. Current isSignUpMode:", isSignUpMode, "Submitting data:", data); // Diagnostic log
     try {
       if (isSignUpMode) {
         const signUpData = data as SignUpFormValues;
+        if (!signUpData.name) { // Defensive check if name field is missing for sign up
+          console.error("Sign up attempt missing name field in data:", signUpData);
+          toast({
+            title: "Sign Up Failed",
+            description: "Name is required for sign up.",
+            variant: "destructive",
+          });
+          return;
+        }
         const success = await signUpWithEmailPassword(signUpData.email, signUpData.password, signUpData.name);
         if (success) {
           toast({
             title: "Sign Up Successful",
             description: "Welcome to VitaLog Pro! You are now logged in.",
           });
-          // Navigation will be handled by AuthContext's onAuthStateChanged
         }
       } else {
         const loginData = data as LoginFormValues;
@@ -79,16 +87,16 @@ export function LoginForm() {
             title: "Login Successful",
             description: "Welcome back to VitaLog Pro!",
           });
-          // Navigation will be handled by AuthContext's onAuthStateChanged
         }
       }
     } catch (error: any) {
-      console.error("Authentication error:", error);
+      console.error(`Authentication error in LoginForm. isSignUpMode: ${isSignUpMode}. Error:`, error); // Enhanced log
       let errorMessage = "An unexpected error occurred. Please try again.";
       if (error.code) {
         switch (error.code) {
           case 'auth/user-not-found':
           case 'auth/wrong-password':
+          case 'auth/invalid-credential': // This is typically a login error
             errorMessage = 'Invalid email or password.';
             break;
           case 'auth/email-already-in-use':
@@ -123,7 +131,11 @@ export function LoginForm() {
         </CardHeader>
         <CardContent>
           {isClient ? (
-            <form onSubmit={form.handleSubmit(handleSubmitAuth)} className="space-y-6">
+            <form 
+              key={isSignUpMode ? 'signup-form' : 'login-form'} // Key to force re-render and re-initialization of RHF
+              onSubmit={form.handleSubmit(handleSubmitAuth)} 
+              className="space-y-6"
+            >
               <div className="space-y-4">
                 {isSignUpMode && (
                   <div className="space-y-2">
@@ -134,7 +146,7 @@ export function LoginForm() {
                         id="name" 
                         type="text"
                         placeholder="e.g., Alex Ryder" 
-                        {...form.register("name" as any)} // Cast 'name' as any if TS complains due to union type
+                        {...form.register("name" as any)} 
                         className="pl-10"
                       />
                     </div>
