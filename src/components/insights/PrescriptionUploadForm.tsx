@@ -11,11 +11,11 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Loader2, UploadCloud, FileText, CheckCircle, AlertCircle, Pill, Info, ListChecks, ShieldAlert, BookOpen, Eye } from 'lucide-react';
-import Image from 'next/image'; // For the preview
+import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
 import { extractMedicationDetails, ExtractMedicationDetailsOutput } from '@/ai/flows/extract-medication-details';
 import { getMedicineInfo, GetMedicineInfoOutput } from '@/ai/flows/get-medicine-info-flow';
-import type { Prescription, MedicationDetail, MedicineInfo } from '@/types';
+import type { Prescription, MedicationDetail } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { db, storage } from '@/lib/firebase';
 import { collection, addDoc } from 'firebase/firestore';
@@ -24,7 +24,6 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
 
-// Zod schema now validates the file input, but we'll primarily use local state for the selected file post-selection
 const PrescriptionUploadSchema = z.object({
   prescriptionFile: z
     .custom<FileList>()
@@ -34,7 +33,7 @@ const PrescriptionUploadSchema = z.object({
       (files) => files && ALLOWED_FILE_TYPES.includes(files[0]?.type),
       "Only .jpg, .png, and .pdf files are allowed."
     )
-    .optional(), // Make it optional in Zod as direct interaction is handled via onChange
+    .optional(),
 });
 
 type PrescriptionUploadFormValues = z.infer<typeof PrescriptionUploadSchema>;
@@ -59,11 +58,13 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
   const { toast } = useToast();
   const { firebaseUser } = useAuth();
 
-  const { register, handleSubmit, formState: { errors }, reset, watch, setValue } = useForm<PrescriptionUploadFormValues>({
+  const { register, handleSubmit, formState: { errors }, reset, setValue, clearErrors } = useForm<PrescriptionUploadFormValues>({
     resolver: zodResolver(PrescriptionUploadSchema),
+    defaultValues: {
+      prescriptionFile: undefined,
+    }
   });
 
-  // Effect to revoke object URL to prevent memory leaks
   useEffect(() => {
     const currentPreviewUrl = imagePreviewUrl;
     return () => {
@@ -74,30 +75,31 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
   }, [imagePreviewUrl]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    console.log("PrescriptionUploadForm handleFileChange: Event triggered.");
     const files = event.target.files;
+    clearErrors('prescriptionFile'); 
+
     if (files && files.length > 0) {
       const file = files[0];
-      // Manually trigger validation for the file input using react-hook-form's setValue and trigger
+      console.log("PrescriptionUploadForm handleFileChange: File selected -", file.name, file.type, file.size);
       setValue('prescriptionFile', files, { shouldValidate: true });
-
       setSelectedFile(file);
       setSelectedFileName(file.name);
 
-      if (imagePreviewUrl) { // Revoke old preview URL if one exists
+      if (imagePreviewUrl) {
         URL.revokeObjectURL(imagePreviewUrl);
       }
       if (file.type.startsWith('image/')) {
         setImagePreviewUrl(URL.createObjectURL(file));
       } else if (file.type === 'application/pdf') {
-        setImagePreviewUrl(null); // No direct preview for PDF, but name is shown
+        setImagePreviewUrl(null); 
       } else {
         setImagePreviewUrl(null);
       }
-
-
-      setAnalysisResult(null); // Clear previous results
+      setAnalysisResult(null);
       setDetailedMedicationInfo([]);
     } else {
+      console.log("PrescriptionUploadForm handleFileChange: No file selected or selection cancelled.");
       setValue('prescriptionFile', undefined, { shouldValidate: true });
       setSelectedFile(null);
       setSelectedFileName(null);
@@ -105,51 +107,72 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
         URL.revokeObjectURL(imagePreviewUrl);
       }
       setImagePreviewUrl(null);
+      setAnalysisResult(null);
+      setDetailedMedicationInfo([]);
     }
   };
 
-  const onSubmit: SubmitHandler<PrescriptionUploadFormValues> = async (data) => {
-    // The 'data' from RHF isn't directly used for the file anymore; we use 'selectedFile' from state
+  const onSubmit: SubmitHandler<PrescriptionUploadFormValues> = async (dataFromRHF) => {
+    console.log("PrescriptionUploadForm onSubmit: Form submitted.", { dataFromRHF, selectedFileFromState: selectedFile, errorsFromRHF: errors });
+
     if (!selectedFile) {
-      toast({ title: "No File Selected", description: "Please select a prescription file to upload and analyze.", variant: "destructive" });
+      console.error("PrescriptionUploadForm onSubmit: CRITICAL - selectedFile is null, cannot proceed. This indicates a state mismatch or logic error.");
+      toast({ title: "No File Selected", description: "Critical error: No file selected. Please try selecting the file again.", variant: "destructive" });
       return;
     }
 
     if (!firebaseUser || !db || !storage) {
+      console.error("PrescriptionUploadForm onSubmit: Firebase user, DB, or Storage not available. Aborting.");
       toast({ title: "Error", description: "User not authenticated or Firebase services not available.", variant: "destructive" });
       setIsUploading(false); setIsAnalyzingText(false); setIsFetchingMedInfo(false);
       return;
     }
 
+    console.log("PrescriptionUploadForm onSubmit: All initial checks passed. Proceeding with upload and analysis.");
     setIsUploading(true);
     setIsAnalyzingText(false);
     setIsFetchingMedInfo(false);
-    // analysisResult & detailedMedicationInfo are reset by handleFileChange or if already null/empty
+    setAnalysisResult(null); 
+    setDetailedMedicationInfo([]);
 
-    const fileToProcess = selectedFile; // Use the file from state
+    const fileToProcess = selectedFile;
 
     try {
+      console.log(`PrescriptionUploadForm onSubmit: Step 1 - Uploading "${fileToProcess.name}" to Firebase Storage...`);
       const storageFilePath = `users/${firebaseUser.uid}/prescriptions/${Date.now()}_${fileToProcess.name}`;
       const storageRef = ref(storage, storageFilePath);
       await uploadBytes(storageRef, fileToProcess);
       const imageUrl = await getDownloadURL(storageRef);
-      
+      console.log("PrescriptionUploadForm onSubmit: Step 1 - Upload to Firebase Storage successful. Image URL:", imageUrl);
+
       setIsUploading(false);
       setIsAnalyzingText(true);
+      console.log("PrescriptionUploadForm onSubmit: Step 2 - Reading file as Data URL for AI analysis...");
 
       const reader = new FileReader();
       reader.readAsDataURL(fileToProcess);
 
       reader.onloadend = async () => {
+        console.log("PrescriptionUploadForm onSubmit (reader.onloadend): File read as Data URL successfully.");
         const base64data = reader.result as string;
+        if (!base64data) {
+          console.error("PrescriptionUploadForm onSubmit (reader.onloadend): Failed to read file as base64 data. Aborting AI analysis.");
+          toast({ title: "File Read Error", description: "Could not read the file for AI analysis.", variant: "destructive"});
+          setIsAnalyzingText(false);
+          return;
+        }
+        
         try {
+          console.log("PrescriptionUploadForm onSubmit (reader.onloadend): Step 3 - Calling 'extractMedicationDetails' (Gemini for OCR)...");
           const textExtractionResult = await extractMedicationDetails({ prescriptionDataUri: base64data });
+          console.log("PrescriptionUploadForm onSubmit (reader.onloadend): Step 3 - 'extractMedicationDetails' successful. Result:", textExtractionResult);
           setAnalysisResult(textExtractionResult);
           setIsAnalyzingText(false);
 
           let processedMedicationsForFirestore: MedicationDetail[] = textExtractionResult.medicationDetails || [];
 
           if (textExtractionResult.medicationDetails && textExtractionResult.medicationDetails.length > 0) {
+            console.log("PrescriptionUploadForm onSubmit (reader.onloadend): Step 4 - Fetching detailed info for extracted medications...");
             setIsFetchingMedInfo(true);
             const initialMedsWithLoadingState: ExtendedMedicationDetail[] = textExtractionResult.medicationDetails.map(med => ({
               ...med,
@@ -159,10 +182,12 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
 
             const medicationProcessingPromises = textExtractionResult.medicationDetails.map(async (med) => {
               try {
+                console.log(`PrescriptionUploadForm onSubmit: Fetching info for ${med.name}`);
                 const infoResult = await getMedicineInfo({ medicineName: med.name });
+                console.log(`PrescriptionUploadForm onSubmit: Info fetched for ${med.name}`, infoResult);
                 return { ...med, info: infoResult, isLoadingInfo: false };
               } catch (infoError) {
-                console.error(`Error fetching info for ${med.name}:`, infoError);
+                console.error(`PrescriptionUploadForm onSubmit: Error fetching info for ${med.name}:`, infoError);
                 toast({ title: "Info Fetch Error", description: `Could not fetch detailed information for ${med.name}.`, variant: "destructive", duration: 3000 });
                 return { ...med, info: undefined, isLoadingInfo: false };
               }
@@ -174,7 +199,7 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
               if (result.status === 'fulfilled') {
                 return result.value;
               } else {
-                // Fallback if a specific medicine info fetch failed
+                console.error(`PrescriptionUploadForm onSubmit: Promise for medication info (index ${index}) rejected:`, result.reason);
                 return {
                   ...(textExtractionResult.medicationDetails?.[index] || { name: 'Unknown', dosage: '', frequency: '' }),
                   info: undefined,
@@ -183,19 +208,23 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
               }
             });
 
+            console.log("PrescriptionUploadForm onSubmit (reader.onloadend): Step 4 - All detailed medication info fetched/processed.");
             setDetailedMedicationInfo(finalMedicationDetails);
             processedMedicationsForFirestore = finalMedicationDetails.map(med => {
-              const { isLoadingInfo, info, ...rest } = med; // Destructure info correctly
-              return { ...rest, ...(info && { info }) }; // Include info only if it exists
+              const { isLoadingInfo, ...rest } = med; 
+              return { ...rest, ...(rest.info && { info: rest.info }) };
             });
             setIsFetchingMedInfo(false);
+          } else {
+             console.log("PrescriptionUploadForm onSubmit (reader.onloadend): Step 4 - No medications extracted to fetch details for.");
           }
 
+          console.log("PrescriptionUploadForm onSubmit (reader.onloadend): Step 5 - Preparing to save prescription to Firestore...");
           const prescriptionDoc: Omit<Prescription, 'id'> = {
             userId: firebaseUser.uid,
             fileName: fileToProcess.name,
             uploadDate: new Date().toISOString(),
-            status: 'needs_correction', // Default status after upload
+            status: 'needs_correction',
             extractedMedications: processedMedicationsForFirestore,
             ocrConfidence: textExtractionResult.ocrConfidence,
             userVerificationStatus: 'pending',
@@ -205,6 +234,7 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
           
           const prescriptionsColRef = collection(db, `users/${firebaseUser.uid}/prescriptions`);
           const docRef = await addDoc(prescriptionsColRef, prescriptionDoc);
+          console.log("PrescriptionUploadForm onSubmit (reader.onloadend): Step 5 - Prescription saved to Firestore. Document ID:", docRef.id);
 
           onUploadSuccess({ ...prescriptionDoc, id: docRef.id });
           toast({
@@ -212,42 +242,39 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
             description: "Prescription details extracted and analyzed. Please review and verify.",
           });
           
-          // Reset states for next upload
+          reset(); 
           setSelectedFile(null);
           setSelectedFileName(null);
           if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
           setImagePreviewUrl(null);
-          setValue('prescriptionFile', undefined); // Reset RHF field
-          // analysisResult & detailedMedicationInfo are kept for display until new file selection
-
+          // analysisResult & detailedMedicationInfo are kept visible for user review until next file selection
         } catch (aiError) {
-          console.error("AI analysis or Firestore saving error:", aiError);
+          console.error("PrescriptionUploadForm onSubmit (reader.onloadend): AI analysis or Firestore saving error.", aiError);
           toast({ title: "AI Analysis Failed", description: "Could not analyze the prescription or save details. Please try again.", variant: "destructive" });
           setIsAnalyzingText(false);
           setIsFetchingMedInfo(false);
           setAnalysisResult(null); 
           setDetailedMedicationInfo([]);
-          // Do not reset form here, user might want to retry with same file if it was an AI/network hiccup
         }
       };
 
       reader.onerror = () => {
-        console.error("File reading error for AI analysis");
+        console.error("PrescriptionUploadForm onSubmit (reader.onerror): File reading error for AI analysis.");
         toast({ title: "File Reading Error", description: "Could not read the file for AI analysis.", variant: "destructive" });
         setIsUploading(false); setIsAnalyzingText(false); setIsFetchingMedInfo(false);
         setAnalysisResult(null); setDetailedMedicationInfo([]);
-        reset(); // Reset RHF form
+        reset();
         setSelectedFile(null); setSelectedFileName(null);
         if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
         setImagePreviewUrl(null);
       };
 
     } catch (uploadError) {
-      console.error("Upload or other initialization error:", uploadError);
+      console.error("PrescriptionUploadForm onSubmit: Firebase Storage upload or other initialization error.", uploadError);
       toast({ title: "Upload Failed", description: "An unexpected error occurred during upload.", variant: "destructive" });
       setIsUploading(false); setIsAnalyzingText(false); setIsFetchingMedInfo(false);
       setAnalysisResult(null); setDetailedMedicationInfo([]);
-      reset(); // Reset RHF form
+      reset(); 
       setSelectedFile(null); setSelectedFileName(null);
       if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
       setImagePreviewUrl(null);
@@ -278,14 +305,13 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
                       id="prescriptionFile-input" 
                       type="file" 
                       className="hidden"
-                      {...register("prescriptionFile")} // Register with RHF
-                      onChange={handleFileChange} // Also use our custom handler
+                      {...register("prescriptionFile")}
+                      onChange={handleFileChange}
                       accept={ALLOWED_FILE_TYPES.join(",")} 
                       disabled={!!currentLoadingStep}
                     />
                 </label>
             </div>
-            {/* Display RHF errors for the file input */}
             {errors.prescriptionFile && <p className="text-sm text-destructive mt-1">{errors.prescriptionFile.message as string}</p>}
             
             {selectedFileName && !imagePreviewUrl && !currentLoadingStep && (
@@ -387,3 +413,5 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
     </Card>
   );
 }
+
+    
