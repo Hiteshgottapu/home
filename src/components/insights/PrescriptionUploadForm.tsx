@@ -9,10 +9,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, UploadCloud, FileText, CheckCircle, AlertCircle } from 'lucide-react';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Loader2, UploadCloud, FileText, CheckCircle, AlertCircle, Pill, Info, ListChecks, ShieldAlert, BookOpen } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { extractMedicationDetails, ExtractMedicationDetailsOutput } from '@/ai/flows/extract-medication-details';
-import type { Prescription } from '@/types';
+import { getMedicineInfo, GetMedicineInfoOutput } from '@/ai/flows/get-medicine-info-flow'; // Import new flow
+import type { Prescription, MedicationDetail, MedicineInfo } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { db, storage } from '@/lib/firebase';
 import { collection, addDoc } from 'firebase/firestore';
@@ -34,14 +36,22 @@ const PrescriptionUploadSchema = z.object({
 
 type PrescriptionUploadFormValues = z.infer<typeof PrescriptionUploadSchema>;
 
+interface ExtendedMedicationDetail extends MedicationDetail {
+  info?: MedicineInfo;
+  isLoadingInfo?: boolean; // To show loading state for individual med info fetching
+}
+
 interface PrescriptionUploadFormProps {
   onUploadSuccess: (prescription: Prescription) => void;
 }
 
 export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFormProps) {
-  const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isAnalyzingText, setIsAnalyzingText] = useState(false);
+  const [isFetchingMedInfo, setIsFetchingMedInfo] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<ExtractMedicationDetailsOutput | null>(null);
-  const [selectedFileName, setSelectedFileName] = useState<string | null>(null); // Renamed for clarity
+  const [detailedMedicationInfo, setDetailedMedicationInfo] = useState<ExtendedMedicationDetail[]>([]);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const { toast } = useToast();
   const { firebaseUser } = useAuth();
 
@@ -55,7 +65,8 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
     const files = event.target.files;
     if (files && files.length > 0) {
       setSelectedFileName(files[0].name);
-      setAnalysisResult(null); 
+      setAnalysisResult(null);
+      setDetailedMedicationInfo([]);
     } else {
       setSelectedFileName(null);
     }
@@ -66,8 +77,9 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
       toast({ title: "Error", description: "User not authenticated or Firebase services not available.", variant: "destructive" });
       return;
     }
-    setIsLoading(true);
+    setIsUploading(true);
     setAnalysisResult(null);
+    setDetailedMedicationInfo([]);
     const file = data.prescriptionFile[0];
 
     try {
@@ -76,6 +88,8 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
       const storageRef = ref(storage, storageFilePath);
       await uploadBytes(storageRef, file);
       const imageUrl = await getDownloadURL(storageRef);
+      setIsUploading(false);
+      setIsAnalyzingText(true);
 
       // 2. Get Base64 data for AI analysis
       const reader = new FileReader();
@@ -83,22 +97,48 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
       reader.onloadend = async () => {
         const base64data = reader.result as string;
         try {
-          // 3. Call AI Flow
-          const aiResult = await extractMedicationDetails({ prescriptionDataUri: base64data });
-          setAnalysisResult(aiResult);
+          // 3. Call AI Flow to extract medication text
+          const textExtractionResult = await extractMedicationDetails({ prescriptionDataUri: base64data });
+          setAnalysisResult(textExtractionResult);
+          setIsAnalyzingText(false);
+
+          let processedMedications: MedicationDetail[] = [];
+
+          if (textExtractionResult.medicationDetails && textExtractionResult.medicationDetails.length > 0) {
+            setIsFetchingMedInfo(true);
+            const extendedMeds: ExtendedMedicationDetail[] = textExtractionResult.medicationDetails.map(med => ({ ...med, isLoadingInfo: true }));
+            setDetailedMedicationInfo(extendedMeds); // Show initial meds with loading state
+
+            const medicationInfoPromises = textExtractionResult.medicationDetails.map(async (med, index) => {
+              try {
+                const info = await getMedicineInfo({ medicineName: med.name });
+                return { ...med, info };
+              } catch (infoError) {
+                console.error(`Error fetching info for ${med.name}:`, infoError);
+                toast({ title: "Info Fetch Error", description: `Could not fetch detailed information for ${med.name}.`, variant: "destructive", duration: 3000 });
+                return { ...med, info: undefined }; // Keep med, but no info
+              } finally {
+                 // Update specific medication with its fetched info or lack thereof, and stop its loading
+                setDetailedMedicationInfo(prev => prev.map((m, i) => i === index ? { ...m, isLoadingInfo: false, info: (prev[i].info || (await medicationInfoPromises[i])?.info) } : m));
+              }
+            });
+            processedMedications = await Promise.all(medicationInfoPromises);
+            setDetailedMedicationInfo(processedMedications.map(med => ({...med, isLoadingInfo: false}))); // Final update with all loading states false
+            setIsFetchingMedInfo(false);
+          }
+
 
           // 4. Save metadata to Firestore
           const prescriptionDoc: Omit<Prescription, 'id'> = {
             userId: firebaseUser.uid,
             fileName: file.name,
             uploadDate: new Date().toISOString(),
-            status: 'needs_correction', // Default status after AI analysis
-            extractedMedications: aiResult.medicationDetails,
-            ocrConfidence: aiResult.ocrConfidence,
+            status: 'needs_correction',
+            extractedMedications: processedMedications, // Save enriched medication details
+            ocrConfidence: textExtractionResult.ocrConfidence,
             userVerificationStatus: 'pending',
-            imageUrl: imageUrl, // URL from Firebase Storage
-            storagePath: storageFilePath, // Path for potential deletion
-            // patientName and doctor can be added later or through another form
+            imageUrl: imageUrl,
+            storagePath: storageFilePath,
           };
           
           const prescriptionsColRef = collection(db, `users/${firebaseUser.uid}/prescriptions`);
@@ -107,29 +147,36 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
           onUploadSuccess({ ...prescriptionDoc, id: docRef.id });
           toast({
             title: "Analysis Complete",
-            description: "Prescription details extracted. Please review and verify.",
+            description: "Prescription details extracted and analyzed. Please review and verify.",
           });
-          reset(); // Reset the form
+          reset(); 
           setSelectedFileName(null);
+          // Do not reset detailedMedicationInfo here, it's shown in the UI until next upload.
 
         } catch (aiError) {
           console.error("AI analysis error:", aiError);
           toast({ title: "AI Analysis Failed", description: "Could not analyze the prescription.", variant: "destructive" });
-        } finally {
-          setIsLoading(false); // Moved here to ensure it's called even if AI fails
+          setIsAnalyzingText(false);
+          setIsFetchingMedInfo(false);
         }
       };
       reader.onerror = () => {
         console.error("File reading error for AI analysis");
         toast({ title: "File Reading Error", description: "Could not read the file for AI analysis.", variant: "destructive" });
-        setIsLoading(false);
+        setIsUploading(false);
+        setIsAnalyzingText(false);
       };
     } catch (error) {
       console.error("Upload or Firestore error:", error);
       toast({ title: "Upload Failed", description: "An unexpected error occurred.", variant: "destructive" });
-      setIsLoading(false);
+      setIsUploading(false);
+      setIsAnalyzingText(false);
+      setIsFetchingMedInfo(false);
     }
   };
+  
+  const currentLoadingStep = isUploading ? "Uploading image..." : isAnalyzingText ? "Extracting text..." : isFetchingMedInfo ? "Fetching medicine details..." : null;
+
 
   return (
     <Card id="upload" className="w-full shadow-lg">
@@ -142,12 +189,12 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
           <div className="space-y-2">
             <Label htmlFor="prescriptionFile" className="sr-only">Prescription File</Label>
             <div className="flex items-center justify-center w-full">
-                <label htmlFor="prescriptionFile" className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer bg-muted/50 hover:bg-muted/80 border-border hover:border-primary transition-colors">
+                <label htmlFor="prescriptionFile" className={`flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg  bg-muted/50 hover:bg-muted/80 border-border hover:border-primary transition-colors ${currentLoadingStep ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
                         <UploadCloud className="w-10 h-10 mb-3 text-muted-foreground" />
                         <p className="mb-2 text-sm text-muted-foreground"><span className="font-semibold text-primary">Click to upload</span> or drag and drop</p>
                         <p className="text-xs text-muted-foreground">JPEG, PNG, PDF (MAX. 10MB)</p>
-                        {selectedFileName && <p className="text-xs text-accent mt-2"><FileText className="inline h-3 w-3 mr-1" />{selectedFileName}</p>}
+                        {selectedFileName && !currentLoadingStep && <p className="text-xs text-accent mt-2"><FileText className="inline h-3 w-3 mr-1" />{selectedFileName}</p>}
                     </div>
                     <Input 
                       id="prescriptionFile" 
@@ -155,49 +202,85 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
                       className="hidden"
                       {...register("prescriptionFile", { onChange: handleFileChange })}
                       accept={ALLOWED_FILE_TYPES.join(",")} 
+                      disabled={!!currentLoadingStep}
                     />
                 </label>
             </div>
             {errors.prescriptionFile && <p className="text-sm text-destructive mt-1">{errors.prescriptionFile.message as string}</p>}
           </div>
-          <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
-            {isLoading ? 'Processing...' : 'Upload & Analyze'}
+          <Button type="submit" className="w-full" disabled={!!currentLoadingStep || !fileList || fileList.length === 0}>
+            {currentLoadingStep ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
+            {currentLoadingStep || 'Upload & Analyze'}
           </Button>
         </form>
 
-        {analysisResult && (
+        {(analysisResult || detailedMedicationInfo.length > 0) && (
           <div className="mt-6 space-y-4">
             <h3 className="text-lg font-semibold text-foreground">AI Analysis Results (Review Below):</h3>
-            <Card className="bg-background/50">
-              <CardContent className="p-4 space-y-3">
-                <div className="flex items-center">
-                  {analysisResult.ocrConfidence > 0.7 ? <CheckCircle className="h-5 w-5 text-green-500 mr-2" /> : <AlertCircle className="h-5 w-5 text-amber-500 mr-2" />}
-                  <p className="text-sm">OCR Confidence: <span className={`font-medium ${analysisResult.ocrConfidence > 0.7 ? 'text-green-600' : 'text-amber-600'}`}>{(analysisResult.ocrConfidence * 100).toFixed(1)}%</span></p>
+            {analysisResult && (
+                <div className={`flex items-center p-3 rounded-md ${analysisResult.ocrConfidence > 0.7 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'} border mb-4`}>
+                    {analysisResult.ocrConfidence > 0.7 ? <CheckCircle className="h-5 w-5 text-green-500 mr-2 shrink-0" /> : <AlertCircle className="h-5 w-5 text-amber-500 mr-2 shrink-0" />}
+                    <p className="text-sm">
+                    OCR Confidence for text extraction: <span className={`font-medium ${analysisResult.ocrConfidence > 0.7 ? 'text-green-700' : 'text-amber-700'}`}>{(analysisResult.ocrConfidence * 100).toFixed(1)}%</span>.
+                    {analysisResult.ocrConfidence <= 0.7 && " Please verify extracted text carefully."}
+                    </p>
                 </div>
-                {analysisResult.ocrConfidence <= 0.7 && <p className="text-xs text-amber-700">Low confidence: please verify details carefully in the list below.</p>}
-                
-                {analysisResult.medicationDetails.length > 0 ? (
-                  <ul className="space-y-2">
-                    {analysisResult.medicationDetails.map((med, index) => (
-                      <li key={index} className="p-3 border rounded-md bg-card shadow-sm">
-                        <p className="font-medium text-primary">{med.name}</p>
-                        <p className="text-sm text-muted-foreground">Dosage: {med.dosage}</p>
-                        <p className="text-sm text-muted-foreground">Frequency: {med.frequency}</p>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No medication details extracted by AI. Please add manually if needed after upload.</p>
-                )}
-                 <p className="text-xs text-muted-foreground pt-2">Please verify these details against your prescription. You can edit them from the main list view.</p>
-              </CardContent>
-            </Card>
+            )}
+
+            {detailedMedicationInfo.length > 0 ? (
+              <Accordion type="multiple" className="w-full space-y-3">
+                {detailedMedicationInfo.map((med, index) => (
+                  <AccordionItem value={`med-${index}`} key={index} className="border rounded-md shadow-sm bg-card overflow-hidden">
+                    <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/50">
+                      <div className="flex items-center gap-2 text-base">
+                        <Pill className="h-5 w-5 text-primary" /> 
+                        <span className="font-medium">{med.name}</span>
+                        {med.isLoadingInfo && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground ml-2" />}
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="px-4 pt-2 pb-4 space-y-3 bg-background/30">
+                      <p className="text-sm"><span className="font-semibold text-muted-foreground">Dosage:</span> {med.dosage}</p>
+                      <p className="text-sm"><span className="font-semibold text-muted-foreground">Frequency:</span> {med.frequency}</p>
+                      {med.info && (
+                        <div className="mt-3 pt-3 border-t space-y-2">
+                          <div>
+                            <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5"><BookOpen size={14}/> Overview:</h4>
+                            <p className="text-xs text-muted-foreground pl-1">{med.info.overview}</p>
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5"><ListChecks size={14}/> Common Uses:</h4>
+                            <ul className="list-disc list-inside text-xs text-muted-foreground pl-2">
+                              {med.info.commonUses.map((use, i) => <li key={i}>{use}</li>)}
+                            </ul>
+                          </div>
+                           <div>
+                            <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5"><Info size={14}/>General Dosage Info:</h4>
+                            <p className="text-xs text-muted-foreground pl-1">{med.info.generalDosageInformation}</p>
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5"><ShieldAlert size={14}/> Common Precautions:</h4>
+                            <ul className="list-disc list-inside text-xs text-muted-foreground pl-2">
+                              {med.info.commonPrecautions.map((caution, i) => <li key={i}>{caution}</li>)}
+                            </ul>
+                          </div>
+                          <div className="mt-2 p-2 border border-amber-500 bg-amber-50 rounded-md">
+                            <p className="text-xs text-amber-700 font-medium">Disclaimer:</p>
+                            <p className="text-xs text-amber-600">{med.info.disclaimer}</p>
+                          </div>
+                        </div>
+                      )}
+                       {!med.info && !med.isLoadingInfo && <p className="text-xs text-destructive">Could not load detailed information for this medicine.</p>}
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
+              </Accordion>
+            ) : (
+              !isAnalyzingText && !isFetchingMedInfo && analysisResult && <p className="text-sm text-muted-foreground">No medication details extracted by AI, or details are still loading.</p>
+            )}
+            { detailedMedicationInfo.length > 0 && <p className="text-xs text-muted-foreground pt-2 text-center">Please verify these details. You can edit them from the main list view after verification.</p>}
           </div>
         )}
       </CardContent>
     </Card>
   );
 }
-
-    
