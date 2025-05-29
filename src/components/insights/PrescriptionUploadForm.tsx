@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm, SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -10,7 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Loader2, UploadCloud, FileText, CheckCircle, AlertCircle, Pill, Info, ListChecks, ShieldAlert, BookOpen } from 'lucide-react';
+import { Loader2, UploadCloud, FileText, CheckCircle, AlertCircle, Pill, Info, ListChecks, ShieldAlert, BookOpen, Eye } from 'lucide-react';
+import Image from 'next/image'; // For the preview
 import { useToast } from '@/hooks/use-toast';
 import { extractMedicationDetails, ExtractMedicationDetailsOutput } from '@/ai/flows/extract-medication-details';
 import { getMedicineInfo, GetMedicineInfoOutput } from '@/ai/flows/get-medicine-info-flow';
@@ -23,6 +24,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
 
+// Zod schema now validates the file input, but we'll primarily use local state for the selected file post-selection
 const PrescriptionUploadSchema = z.object({
   prescriptionFile: z
     .custom<FileList>()
@@ -31,14 +33,14 @@ const PrescriptionUploadSchema = z.object({
     .refine(
       (files) => files && ALLOWED_FILE_TYPES.includes(files[0]?.type),
       "Only .jpg, .png, and .pdf files are allowed."
-    ),
+    )
+    .optional(), // Make it optional in Zod as direct interaction is handled via onChange
 });
 
 type PrescriptionUploadFormValues = z.infer<typeof PrescriptionUploadSchema>;
 
 interface ExtendedMedicationDetail extends MedicationDetail {
   isLoadingInfo?: boolean;
-  info?: MedicineInfo; // Ensure info is part of this type for UI display
 }
 
 interface PrescriptionUploadFormProps {
@@ -46,6 +48,8 @@ interface PrescriptionUploadFormProps {
 }
 
 export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFormProps) {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isAnalyzingText, setIsAnalyzingText] = useState(false);
   const [isFetchingMedInfo, setIsFetchingMedInfo] = useState(false);
@@ -55,64 +59,101 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
   const { toast } = useToast();
   const { firebaseUser } = useAuth();
 
-  const { register, handleSubmit, formState: { errors }, reset, watch } = useForm<PrescriptionUploadFormValues>({
+  const { register, handleSubmit, formState: { errors }, reset, watch, setValue } = useForm<PrescriptionUploadFormValues>({
     resolver: zodResolver(PrescriptionUploadSchema),
   });
 
-  const fileList = watch("prescriptionFile");
+  // Effect to revoke object URL to prevent memory leaks
+  useEffect(() => {
+    const currentPreviewUrl = imagePreviewUrl;
+    return () => {
+      if (currentPreviewUrl) {
+        URL.revokeObjectURL(currentPreviewUrl);
+      }
+    };
+  }, [imagePreviewUrl]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files && files.length > 0) {
-      setSelectedFileName(files[0].name);
-      setAnalysisResult(null); // Clear previous results when a new file is selected
-      setDetailedMedicationInfo([]); // Clear previous detailed info
+      const file = files[0];
+      // Manually trigger validation for the file input using react-hook-form's setValue and trigger
+      setValue('prescriptionFile', files, { shouldValidate: true });
+
+      setSelectedFile(file);
+      setSelectedFileName(file.name);
+
+      if (imagePreviewUrl) { // Revoke old preview URL if one exists
+        URL.revokeObjectURL(imagePreviewUrl);
+      }
+      if (file.type.startsWith('image/')) {
+        setImagePreviewUrl(URL.createObjectURL(file));
+      } else if (file.type === 'application/pdf') {
+        setImagePreviewUrl(null); // No direct preview for PDF, but name is shown
+      } else {
+        setImagePreviewUrl(null);
+      }
+
+
+      setAnalysisResult(null); // Clear previous results
+      setDetailedMedicationInfo([]);
     } else {
+      setValue('prescriptionFile', undefined, { shouldValidate: true });
+      setSelectedFile(null);
       setSelectedFileName(null);
+      if (imagePreviewUrl) {
+        URL.revokeObjectURL(imagePreviewUrl);
+      }
+      setImagePreviewUrl(null);
     }
   };
 
   const onSubmit: SubmitHandler<PrescriptionUploadFormValues> = async (data) => {
-    if (!firebaseUser || !db || !storage) {
-      toast({ title: "Error", description: "User not authenticated or Firebase services not available.", variant: "destructive" });
+    // The 'data' from RHF isn't directly used for the file anymore; we use 'selectedFile' from state
+    if (!selectedFile) {
+      toast({ title: "No File Selected", description: "Please select a prescription file to upload and analyze.", variant: "destructive" });
       return;
     }
 
-    // Reset all loading states and result displays at the beginning of a new submission attempt
+    if (!firebaseUser || !db || !storage) {
+      toast({ title: "Error", description: "User not authenticated or Firebase services not available.", variant: "destructive" });
+      setIsUploading(false); setIsAnalyzingText(false); setIsFetchingMedInfo(false);
+      return;
+    }
+
     setIsUploading(true);
     setIsAnalyzingText(false);
     setIsFetchingMedInfo(false);
-    // analysisResult and detailedMedicationInfo are reset by handleFileChange or if already null/empty
+    // analysisResult & detailedMedicationInfo are reset by handleFileChange or if already null/empty
 
-    const file = data.prescriptionFile[0];
+    const fileToProcess = selectedFile; // Use the file from state
 
     try {
-      const storageFilePath = `users/${firebaseUser.uid}/prescriptions/${Date.now()}_${file.name}`;
+      const storageFilePath = `users/${firebaseUser.uid}/prescriptions/${Date.now()}_${fileToProcess.name}`;
       const storageRef = ref(storage, storageFilePath);
-      await uploadBytes(storageRef, file);
+      await uploadBytes(storageRef, fileToProcess);
       const imageUrl = await getDownloadURL(storageRef);
       
-      setIsUploading(false); // Upload complete
-      setIsAnalyzingText(true); // Start text analysis phase
+      setIsUploading(false);
+      setIsAnalyzingText(true);
 
       const reader = new FileReader();
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(fileToProcess);
 
       reader.onloadend = async () => {
         const base64data = reader.result as string;
         try {
           const textExtractionResult = await extractMedicationDetails({ prescriptionDataUri: base64data });
           setAnalysisResult(textExtractionResult);
-          setIsAnalyzingText(false); // Text analysis complete
+          setIsAnalyzingText(false);
 
           let processedMedicationsForFirestore: MedicationDetail[] = textExtractionResult.medicationDetails || [];
 
           if (textExtractionResult.medicationDetails && textExtractionResult.medicationDetails.length > 0) {
-            setIsFetchingMedInfo(true); // Start fetching detailed info phase
+            setIsFetchingMedInfo(true);
             const initialMedsWithLoadingState: ExtendedMedicationDetail[] = textExtractionResult.medicationDetails.map(med => ({
               ...med,
               isLoadingInfo: true,
-              info: undefined,
             }));
             setDetailedMedicationInfo(initialMedsWithLoadingState);
 
@@ -133,6 +174,7 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
               if (result.status === 'fulfilled') {
                 return result.value;
               } else {
+                // Fallback if a specific medicine info fetch failed
                 return {
                   ...(textExtractionResult.medicationDetails?.[index] || { name: 'Unknown', dosage: '', frequency: '' }),
                   info: undefined,
@@ -143,17 +185,17 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
 
             setDetailedMedicationInfo(finalMedicationDetails);
             processedMedicationsForFirestore = finalMedicationDetails.map(med => {
-              const { isLoadingInfo, ...rest } = med;
-              return rest;
+              const { isLoadingInfo, info, ...rest } = med; // Destructure info correctly
+              return { ...rest, ...(info && { info }) }; // Include info only if it exists
             });
-            setIsFetchingMedInfo(false); // Detailed info fetching complete
+            setIsFetchingMedInfo(false);
           }
 
           const prescriptionDoc: Omit<Prescription, 'id'> = {
             userId: firebaseUser.uid,
-            fileName: file.name,
+            fileName: fileToProcess.name,
             uploadDate: new Date().toISOString(),
-            status: 'needs_correction',
+            status: 'needs_correction', // Default status after upload
             extractedMedications: processedMedicationsForFirestore,
             ocrConfidence: textExtractionResult.ocrConfidence,
             userVerificationStatus: 'pending',
@@ -169,48 +211,51 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
             title: "Analysis Complete",
             description: "Prescription details extracted and analyzed. Please review and verify.",
           });
-          // Reset form only on full success
-          reset(); 
+          
+          // Reset states for next upload
+          setSelectedFile(null);
           setSelectedFileName(null);
-          // Keep analysisResult & detailedMedicationInfo for display until a new file is selected
+          if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+          setImagePreviewUrl(null);
+          setValue('prescriptionFile', undefined); // Reset RHF field
+          // analysisResult & detailedMedicationInfo are kept for display until new file selection
 
         } catch (aiError) {
           console.error("AI analysis or Firestore saving error:", aiError);
-          toast({ title: "AI Analysis Failed", description: "Could not analyze the prescription or save details.", variant: "destructive" });
+          toast({ title: "AI Analysis Failed", description: "Could not analyze the prescription or save details. Please try again.", variant: "destructive" });
           setIsAnalyzingText(false);
           setIsFetchingMedInfo(false);
-          setAnalysisResult(null); // Clear potentially stale results
+          setAnalysisResult(null); 
           setDetailedMedicationInfo([]);
-          // Do not reset the form here, user might want to retry with same file if it was an AI/network hiccup
+          // Do not reset form here, user might want to retry with same file if it was an AI/network hiccup
         }
       };
 
       reader.onerror = () => {
         console.error("File reading error for AI analysis");
         toast({ title: "File Reading Error", description: "Could not read the file for AI analysis.", variant: "destructive" });
-        setIsUploading(false); // Ensure all loading states are reset
-        setIsAnalyzingText(false);
-        setIsFetchingMedInfo(false);
-        setAnalysisResult(null);
-        setDetailedMedicationInfo([]);
-        reset(); // Reset form as file couldn't be processed
-        setSelectedFileName(null);
+        setIsUploading(false); setIsAnalyzingText(false); setIsFetchingMedInfo(false);
+        setAnalysisResult(null); setDetailedMedicationInfo([]);
+        reset(); // Reset RHF form
+        setSelectedFile(null); setSelectedFileName(null);
+        if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+        setImagePreviewUrl(null);
       };
 
     } catch (uploadError) {
       console.error("Upload or other initialization error:", uploadError);
       toast({ title: "Upload Failed", description: "An unexpected error occurred during upload.", variant: "destructive" });
-      setIsUploading(false);
-      setIsAnalyzingText(false);
-      setIsFetchingMedInfo(false);
-      setAnalysisResult(null);
-      setDetailedMedicationInfo([]);
-      reset(); // Reset form if initial upload fails
-      setSelectedFileName(null);
+      setIsUploading(false); setIsAnalyzingText(false); setIsFetchingMedInfo(false);
+      setAnalysisResult(null); setDetailedMedicationInfo([]);
+      reset(); // Reset RHF form
+      setSelectedFile(null); setSelectedFileName(null);
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+      setImagePreviewUrl(null);
     }
   };
   
-  const currentLoadingStep = isUploading ? "Uploading image..." : isAnalyzingText ? "Extracting text from image..." : isFetchingMedInfo ? "Fetching medicine details..." : null;
+  const currentLoadingStep = isUploading ? "Uploading image to secure storage..." : isAnalyzingText ? "Extracting text from image using AI..." : isFetchingMedInfo ? "Fetching detailed medicine information..." : null;
+  const canSubmit = !!selectedFile && !currentLoadingStep;
 
   return (
     <Card id="upload" className="w-full shadow-lg">
@@ -221,30 +266,54 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           <div className="space-y-2">
-            <Label htmlFor="prescriptionFile" className="sr-only">Prescription File</Label>
+            <Label htmlFor="prescriptionFile-input" className="sr-only">Prescription File</Label>
             <div className="flex items-center justify-center w-full">
-                <label htmlFor="prescriptionFile" className={`flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg  bg-muted/50 hover:bg-muted/80 border-border hover:border-primary transition-colors ${currentLoadingStep ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                <label htmlFor="prescriptionFile-input" className={`flex flex-col items-center justify-center w-full h-40 border-2 border-dashed rounded-lg bg-muted/50 hover:bg-muted/80 border-border hover:border-primary transition-colors ${currentLoadingStep ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
                         <UploadCloud className="w-10 h-10 mb-3 text-muted-foreground" />
                         <p className="mb-2 text-sm text-muted-foreground"><span className="font-semibold text-primary">Click to upload</span> or drag and drop</p>
                         <p className="text-xs text-muted-foreground">JPEG, PNG, PDF (MAX. 10MB)</p>
-                        {selectedFileName && !currentLoadingStep && <p className="text-xs text-accent mt-2"><FileText className="inline h-3 w-3 mr-1" />{selectedFileName}</p>}
                     </div>
                     <Input 
-                      id="prescriptionFile" 
+                      id="prescriptionFile-input" 
                       type="file" 
                       className="hidden"
-                      {...register("prescriptionFile", { onChange: handleFileChange })}
+                      {...register("prescriptionFile")} // Register with RHF
+                      onChange={handleFileChange} // Also use our custom handler
                       accept={ALLOWED_FILE_TYPES.join(",")} 
                       disabled={!!currentLoadingStep}
                     />
                 </label>
             </div>
+            {/* Display RHF errors for the file input */}
             {errors.prescriptionFile && <p className="text-sm text-destructive mt-1">{errors.prescriptionFile.message as string}</p>}
+            
+            {selectedFileName && !imagePreviewUrl && !currentLoadingStep && (
+              <div className="mt-4 p-3 border rounded-md bg-muted/30 text-center">
+                <FileText className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                <p className="text-sm font-medium text-foreground">{selectedFileName}</p>
+                <p className="text-xs text-muted-foreground">(PDF selected - no direct preview)</p>
+              </div>
+            )}
+
+            {imagePreviewUrl && (
+              <div className="mt-4 p-2 border rounded-lg shadow-inner bg-muted/20">
+                <p className="text-sm font-medium text-center mb-2 text-foreground">Image Preview:</p>
+                <Image 
+                    src={imagePreviewUrl} 
+                    alt="Prescription preview" 
+                    width={400} 
+                    height={300} 
+                    className="rounded-md object-contain mx-auto max-h-[300px] w-auto" 
+                    data-ai-hint="prescription preview"
+                />
+              </div>
+            )}
           </div>
-          <Button type="submit" className="w-full" disabled={!!currentLoadingStep || !fileList || fileList.length === 0}>
+          
+          <Button type="submit" className="w-full" disabled={!canSubmit}>
             {currentLoadingStep ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
-            {currentLoadingStep || 'Upload & Analyze'}
+            {currentLoadingStep || (selectedFile ? 'Upload & Analyze Selected File' : 'Select a File to Upload & Analyze')}
           </Button>
         </form>
 
@@ -318,4 +387,3 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
     </Card>
   );
 }
-
