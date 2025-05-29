@@ -49,12 +49,13 @@ export function LoginForm() {
     },
   });
 
+  // Effect to reset form when switching modes (Login/Sign Up)
   useEffect(() => {
     console.log(`LoginForm: Mode switched. isSignUpMode is now: ${isSignUpMode}. Resetting form.`);
     form.reset({
       email: '',
       password: '',
-      ...(isSignUpMode ? { name: '' } : { name: undefined }),
+      ...(isSignUpMode ? { name: '' } : { name: undefined }), // Critical for Zod not to validate 'name' in login mode
     });
   }, [isSignUpMode, form.reset]);
 
@@ -66,6 +67,7 @@ export function LoginForm() {
     try {
       if (isSignUpMode) {
         const signUpData = data as SignUpFormValues;
+        // Zod schema should catch if name is missing, but an explicit check doesn't hurt
         if (!signUpData.name) {
           console.error("LoginForm: Sign up attempt missing name (should be caught by Zod):", signUpData);
           toast({
@@ -80,6 +82,7 @@ export function LoginForm() {
           title: "Sign Up Successful",
           description: "Welcome to VitaLog Pro! Redirecting...",
         });
+        // Redirection will be handled by LoginPage observing AuthContext.isAuthenticated
       } else {
         const loginData = data as LoginFormValues;
         console.log(`LoginForm: Attempting login for email: ${loginData.email}`);
@@ -89,21 +92,24 @@ export function LoginForm() {
             title: "Login Successful",
             description: "Welcome back to VitaLog Pro! Redirecting...",
           });
+          // Redirection handled by LoginPage
         } else {
+          // AuthContext.loginWithEmailPassword returned false, meaning a Firebase error occurred (e.g., invalid-credential)
           console.error(`LoginForm: Login attempt failed for email ${loginData.email}. AuthContext.loginWithEmailPassword returned false.`);
           toast({
             title: "Login Failed",
-            description: "Invalid email or password. Please try again.",
+            description: "Invalid email or password. Please try again.", // Generic message as AuthContext handles specific Firebase error logging
             variant: "destructive",
           });
         }
       }
     } catch (error: any) {
+      // This catch block is primarily for signUpWithEmailPassword errors, as loginWithEmailPassword returns false.
       const currentModeForError = isSignUpMode ? 'Sign Up' : 'Login';
       console.error(`LoginForm: Auth Error in handleSubmitAuth (Mode: ${currentModeForError}). Error Code: ${error.code}, Message: ${error.message}. Submitted Data:`, { ...data, password: '***' }, "Full Error Object:", error);
 
       let errorMessage = "An unexpected error occurred. Please try again.";
-      if (isSignUpMode && error.code) {
+      if (isSignUpMode && error.code) { // Specific errors for sign-up
         switch (error.code) {
           case 'auth/email-already-in-use':
             errorMessage = 'This email is already registered. Please log in or use a different email.';
@@ -111,13 +117,14 @@ export function LoginForm() {
           case 'auth/weak-password':
             errorMessage = 'Password is too weak. It should be at least 6 characters.';
             break;
+          // Add other specific Firebase error codes for signup as needed
           default:
             errorMessage = error.message || errorMessage;
         }
       } else if (!isSignUpMode) {
-        // This path is taken if loginWithEmailPassword in AuthContext re-throws an error,
-        // or if an unexpected error occurs before calling it.
-        // Currently, AuthContext's login returns false for known Firebase errors like invalid-credential.
+        // This path might be taken if loginWithEmailPassword in AuthContext re-throws an error unexpectedly,
+        // or if an error occurs *before* calling it.
+        // However, current AuthContext.login returns false for known Firebase errors.
         errorMessage = 'Login attempt failed. Please check your credentials or try again later.';
       }
       toast({
@@ -128,77 +135,19 @@ export function LoginForm() {
     }
   };
 
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-background to-secondary/30 p-4">
-      <Card className="w-full max-w-md shadow-2xl">
-        <CardHeader className="text-center space-y-4">
-          <AppLogo className="justify-center" iconSize={40} textSize="text-3xl" />
-          <CardTitle className="text-2xl font-semibold">
-            {isSignUpMode ? "Create an Account" : "Welcome to VitaLog Pro"}
-          </CardTitle>
-          <CardDescription>
-            {isSignUpMode ? "Join us to manage your health proactively." : "Your AI-Powered Health Navigator. Securely Yours."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isClient ? (
-            <form
-              key={isSignUpMode ? 'signup-form' : 'login-form'}
-              onSubmit={form.handleSubmit(handleSubmitAuth)}
-              className="space-y-6"
-            >
-              {isSignUpMode && (
-                <div className="space-y-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <Input
-                      id="name"
-                      type="text"
-                      placeholder="e.g., John Doe"
-                      {...form.register("name" as any)}
-                      className={`pl-10 ${form.formState.errors.name ? "border-destructive" : ""}`}
-                    />
-                  </div>
-                  {form.formState.errors.name && <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>}
-                </div>
-              )}
-              <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
-                 <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="e.g., user@example.com"
-                      {...form.register("email")}
-                      className={`pl-10 ${form.formState.errors.email ? "border-destructive" : ""}`}
-                    />
-                </div>
-                {form.formState.errors.email && <p className="text-sm text-destructive">{form.formState.errors.email.message}</p>}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
-                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <Input
-                      id="password"
-                      type="password"
-                      placeholder="••••••••"
-                      {...form.register("password")}
-                      className={`pl-10 ${form.formState.errors.password ? "border-destructive" : ""}`}
-                    />
-                </div>
-                {form.formState.errors.password && <p className="text-sm text-destructive">{form.formState.errors.password.message}</p>}
-              </div>
-              <Button type="submit" className="w-full text-base py-3" disabled={authLoading}>
-                {authLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : (isSignUpMode ? <User className="mr-2 h-5 w-5" /> : <KeyRound className="mr-2 h-5 w-5" />)}
-                {authLoading ? 'Processing...' : (isSignUpMode ? 'Create Account' : 'Login')}
-              </Button>
-            </form>
-          ) : (
+  // Render skeletons if not client-side yet (to prevent hydration mismatches on initial load)
+  if (!isClient) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-background to-secondary/30 p-4">
+        <Card className="w-full max-w-md shadow-2xl">
+          <CardHeader className="text-center space-y-4">
+            <AppLogo className="justify-center" iconSize={40} textSize="text-3xl" />
+            <Skeleton className="h-6 w-3/4 mx-auto" /> {/* Placeholder for title */}
+            <Skeleton className="h-4 w-full mx-auto" /> {/* Placeholder for description */}
+          </CardHeader>
+          <CardContent>
             <div className="space-y-8">
-              {isSignUpMode && (
+              {isSignUpMode && ( // Show name field skeleton only in signup mode conceptually
                 <div className="space-y-2">
                   <Skeleton className="h-4 w-1/4" />
                   <Skeleton className="h-10 w-full" />
@@ -214,7 +163,85 @@ export function LoginForm() {
               </div>
               <Skeleton className="h-12 w-full" />
             </div>
-          )}
+          </CardContent>
+          <CardFooter className="text-center">
+            <Skeleton className="h-4 w-3/4 mx-auto" /> {/* Placeholder for toggle text */}
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-background to-secondary/30 p-4">
+      <Card className="w-full max-w-md shadow-2xl">
+        <CardHeader className="text-center space-y-4">
+          <AppLogo className="justify-center" iconSize={40} textSize="text-3xl" />
+          <CardTitle className="text-2xl font-semibold">
+            {isSignUpMode ? "Create an Account" : "Welcome to VitaLog Pro"}
+          </CardTitle>
+          <CardDescription>
+            {isSignUpMode ? "Join us to manage your health proactively." : "Your AI-Powered Health Navigator. Securely Yours."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form
+            key={isSignUpMode ? 'signup-form' : 'login-form'} // Force re-render on mode change
+            onSubmit={form.handleSubmit(handleSubmitAuth)}
+            className="space-y-6"
+          >
+            {isSignUpMode && (
+              <div className="space-y-2">
+                <Label htmlFor="name">Full Name</Label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <Input
+                    id="name"
+                    type="text"
+                    placeholder="e.g., John Doe"
+                    {...form.register("name" as any)} // Cast as any if 'name' is conditionally in the form type
+                    className={`pl-10 ${form.formState.errors.name ? "border-destructive" : ""}`}
+                    disabled={authLoading}
+                  />
+                </div>
+                {form.formState.errors.name && <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>}
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="email">Email Address</Label>
+               <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="e.g., user@example.com"
+                    {...form.register("email")}
+                    className={`pl-10 ${form.formState.errors.email ? "border-destructive" : ""}`}
+                    disabled={authLoading}
+                  />
+              </div>
+              {form.formState.errors.email && <p className="text-sm text-destructive">{form.formState.errors.email.message}</p>}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <div className="relative">
+                  <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="••••••••"
+                    {...form.register("password")}
+                    className={`pl-10 ${form.formState.errors.password ? "border-destructive" : ""}`}
+                    disabled={authLoading}
+                  />
+              </div>
+              {form.formState.errors.password && <p className="text-sm text-destructive">{form.formState.errors.password.message}</p>}
+            </div>
+            <Button type="submit" className="w-full text-base py-3" disabled={authLoading}>
+              {authLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : (isSignUpMode ? <User className="mr-2 h-5 w-5" /> : <KeyRound className="mr-2 h-5 w-5" />)}
+              {authLoading ? 'Processing...' : (isSignUpMode ? 'Create Account' : 'Login')}
+            </Button>
+          </form>
         </CardContent>
         <CardFooter className="text-center">
           <p className="text-sm text-muted-foreground">
@@ -223,7 +250,8 @@ export function LoginForm() {
               variant="link"
               className="p-0 h-auto text-primary hover:underline"
               onClick={() => setIsSignUpMode(!isSignUpMode)}
-              type="button"
+              type="button" // Ensure it's not treated as a submit button
+              disabled={authLoading}
             >
               {isSignUpMode ? 'Login here' : 'Sign up now'}
             </Button>
