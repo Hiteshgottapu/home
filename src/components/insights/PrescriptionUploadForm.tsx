@@ -38,6 +38,7 @@ type PrescriptionUploadFormValues = z.infer<typeof PrescriptionUploadSchema>;
 
 interface ExtendedMedicationDetail extends MedicationDetail {
   isLoadingInfo?: boolean;
+  info?: MedicineInfo; // Ensure info is part of this type for UI display
 }
 
 interface PrescriptionUploadFormProps {
@@ -64,8 +65,8 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
     const files = event.target.files;
     if (files && files.length > 0) {
       setSelectedFileName(files[0].name);
-      setAnalysisResult(null);
-      setDetailedMedicationInfo([]);
+      setAnalysisResult(null); // Clear previous results when a new file is selected
+      setDetailedMedicationInfo([]); // Clear previous detailed info
     } else {
       setSelectedFileName(null);
     }
@@ -76,11 +77,13 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
       toast({ title: "Error", description: "User not authenticated or Firebase services not available.", variant: "destructive" });
       return;
     }
+
+    // Reset all loading states and result displays at the beginning of a new submission attempt
     setIsUploading(true);
     setIsAnalyzingText(false);
     setIsFetchingMedInfo(false);
-    setAnalysisResult(null);
-    setDetailedMedicationInfo([]);
+    // analysisResult and detailedMedicationInfo are reset by handleFileChange or if already null/empty
+
     const file = data.prescriptionFile[0];
 
     try {
@@ -88,27 +91,28 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
       const storageRef = ref(storage, storageFilePath);
       await uploadBytes(storageRef, file);
       const imageUrl = await getDownloadURL(storageRef);
-      setIsUploading(false);
-      setIsAnalyzingText(true);
+      
+      setIsUploading(false); // Upload complete
+      setIsAnalyzingText(true); // Start text analysis phase
 
       const reader = new FileReader();
       reader.readAsDataURL(file);
+
       reader.onloadend = async () => {
         const base64data = reader.result as string;
         try {
           const textExtractionResult = await extractMedicationDetails({ prescriptionDataUri: base64data });
           setAnalysisResult(textExtractionResult);
-          setIsAnalyzingText(false);
+          setIsAnalyzingText(false); // Text analysis complete
 
           let processedMedicationsForFirestore: MedicationDetail[] = textExtractionResult.medicationDetails || [];
 
           if (textExtractionResult.medicationDetails && textExtractionResult.medicationDetails.length > 0) {
-            setIsFetchingMedInfo(true);
-            // Initialize UI with loading state for all meds
+            setIsFetchingMedInfo(true); // Start fetching detailed info phase
             const initialMedsWithLoadingState: ExtendedMedicationDetail[] = textExtractionResult.medicationDetails.map(med => ({
               ...med,
               isLoadingInfo: true,
-              info: undefined // Ensure info is initially undefined
+              info: undefined,
             }));
             setDetailedMedicationInfo(initialMedsWithLoadingState);
 
@@ -129,22 +133,20 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
               if (result.status === 'fulfilled') {
                 return result.value;
               } else {
-                // Handle rejected promise (error during getMedicineInfo)
-                // The original medication detail from textExtractionResult.medicationDetails[index] is used
                 return {
-                  ...(textExtractionResult.medicationDetails?.[index] || { name: 'Unknown', dosage: '', frequency: '' }), // Fallback
+                  ...(textExtractionResult.medicationDetails?.[index] || { name: 'Unknown', dosage: '', frequency: '' }),
                   info: undefined,
-                  isLoadingInfo: false
+                  isLoadingInfo: false,
                 };
               }
             });
 
             setDetailedMedicationInfo(finalMedicationDetails);
             processedMedicationsForFirestore = finalMedicationDetails.map(med => {
-              const { isLoadingInfo, ...rest } = med; // Strip UI-only field
+              const { isLoadingInfo, ...rest } = med;
               return rest;
             });
-            setIsFetchingMedInfo(false);
+            setIsFetchingMedInfo(false); // Detailed info fetching complete
           }
 
           const prescriptionDoc: Omit<Prescription, 'id'> = {
@@ -167,36 +169,48 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
             title: "Analysis Complete",
             description: "Prescription details extracted and analyzed. Please review and verify.",
           });
+          // Reset form only on full success
           reset(); 
           setSelectedFileName(null);
-          // Keep analysisResult and detailedMedicationInfo for display until next upload
+          // Keep analysisResult & detailedMedicationInfo for display until a new file is selected
 
         } catch (aiError) {
-          console.error("AI analysis error:", aiError);
-          toast({ title: "AI Analysis Failed", description: "Could not analyze the prescription.", variant: "destructive" });
+          console.error("AI analysis or Firestore saving error:", aiError);
+          toast({ title: "AI Analysis Failed", description: "Could not analyze the prescription or save details.", variant: "destructive" });
           setIsAnalyzingText(false);
           setIsFetchingMedInfo(false);
-          // Optionally clear analysisResult and detailedMedicationInfo here if desired on AI error
-          // setAnalysisResult(null);
-          // setDetailedMedicationInfo([]);
+          setAnalysisResult(null); // Clear potentially stale results
+          setDetailedMedicationInfo([]);
+          // Do not reset the form here, user might want to retry with same file if it was an AI/network hiccup
         }
       };
+
       reader.onerror = () => {
         console.error("File reading error for AI analysis");
         toast({ title: "File Reading Error", description: "Could not read the file for AI analysis.", variant: "destructive" });
-        setIsUploading(false);
+        setIsUploading(false); // Ensure all loading states are reset
         setIsAnalyzingText(false);
+        setIsFetchingMedInfo(false);
+        setAnalysisResult(null);
+        setDetailedMedicationInfo([]);
+        reset(); // Reset form as file couldn't be processed
+        setSelectedFileName(null);
       };
-    } catch (error) {
-      console.error("Upload or Firestore error:", error);
-      toast({ title: "Upload Failed", description: "An unexpected error occurred.", variant: "destructive" });
+
+    } catch (uploadError) {
+      console.error("Upload or other initialization error:", uploadError);
+      toast({ title: "Upload Failed", description: "An unexpected error occurred during upload.", variant: "destructive" });
       setIsUploading(false);
       setIsAnalyzingText(false);
       setIsFetchingMedInfo(false);
+      setAnalysisResult(null);
+      setDetailedMedicationInfo([]);
+      reset(); // Reset form if initial upload fails
+      setSelectedFileName(null);
     }
   };
   
-  const currentLoadingStep = isUploading ? "Uploading image..." : isAnalyzingText ? "Extracting text..." : isFetchingMedInfo ? "Fetching medicine details..." : null;
+  const currentLoadingStep = isUploading ? "Uploading image..." : isAnalyzingText ? "Extracting text from image..." : isFetchingMedInfo ? "Fetching medicine details..." : null;
 
   return (
     <Card id="upload" className="w-full shadow-lg">
@@ -241,7 +255,7 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
                 <div className={`flex items-center p-3 rounded-md ${analysisResult.ocrConfidence > 0.7 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'} border mb-4`}>
                     {analysisResult.ocrConfidence > 0.7 ? <CheckCircle className="h-5 w-5 text-green-500 mr-2 shrink-0" /> : <AlertCircle className="h-5 w-5 text-amber-500 mr-2 shrink-0" />}
                     <p className="text-sm">
-                    OCR Confidence for text extraction: <span className={`font-medium ${analysisResult.ocrConfidence > 0.7 ? 'text-green-700' : 'text-amber-700'}`}>{(analysisResult.ocrConfidence * 100).toFixed(1)}%</span>.
+                    AI Extraction Confidence for text: <span className={`font-medium ${analysisResult.ocrConfidence > 0.7 ? 'text-green-700' : 'text-amber-700'}`}>{(analysisResult.ocrConfidence * 100).toFixed(1)}%</span>.
                     {analysisResult.ocrConfidence <= 0.7 && " Please verify extracted text carefully."}
                     </p>
                 </div>
@@ -305,4 +319,3 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
   );
 }
 
-    
