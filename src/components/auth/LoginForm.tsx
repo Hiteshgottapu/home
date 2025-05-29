@@ -40,7 +40,7 @@ export function LoginForm() {
   }, []);
 
   const currentSchema = isSignUpMode ? SignUpSchema : LoginSchema;
-  const form = useForm<LoginFormValues | SignUpFormValues>({ 
+  const form = useForm<LoginFormValues | SignUpFormValues>({
     resolver: zodResolver(currentSchema),
     defaultValues: {
       email: '',
@@ -48,22 +48,22 @@ export function LoginForm() {
       ...(isSignUpMode && { name: '' }),
     },
   });
-  
+
   useEffect(() => {
     form.reset({
       email: '',
       password: '',
-      name: isSignUpMode ? '' : undefined, 
+      name: isSignUpMode ? '' : undefined,
     });
   }, [isSignUpMode, form.reset]);
 
 
   const handleSubmitAuth: SubmitHandler<LoginFormValues | SignUpFormValues> = async (data) => {
-    console.log("handleSubmitAuth called. Current isSignUpMode:", isSignUpMode, "Submitting data:", data); 
+    console.log("handleSubmitAuth called. Current isSignUpMode:", isSignUpMode, "Submitting data:", data);
     try {
       if (isSignUpMode) {
         const signUpData = data as SignUpFormValues;
-        if (!signUpData.name) { 
+        if (!signUpData.name) {
           console.error("Sign up attempt missing name field in data:", signUpData);
           toast({
             title: "Sign Up Failed",
@@ -72,13 +72,11 @@ export function LoginForm() {
           });
           return;
         }
-        // signUpWithEmailPassword now re-throws Firebase errors
         await signUpWithEmailPassword(signUpData.email, signUpData.password, signUpData.name);
         toast({
           title: "Sign Up Successful",
           description: "Welcome to VitaLog Pro! You are now logged in.",
         });
-        // Successful signup will trigger onAuthStateChanged, leading to redirect
       } else {
         const loginData = data as LoginFormValues;
         const success = await loginWithEmailPassword(loginData.email, loginData.password);
@@ -87,9 +85,7 @@ export function LoginForm() {
             title: "Login Successful",
             description: "Welcome back to VitaLog Pro!",
           });
-          // Successful login will trigger onAuthStateChanged, leading to redirect
         } else {
-          // loginWithEmailPassword returned false, indicating a Firebase error was caught and handled internally
           toast({
             title: "Login Failed",
             description: "Invalid email or password. Please try again.",
@@ -98,11 +94,9 @@ export function LoginForm() {
         }
       }
     } catch (error: any) {
-      // This catch block will now primarily handle errors from signUpWithEmailPassword
-      // or unexpected errors if loginWithEmailPassword was changed to throw again.
-      console.error(`Authentication error in LoginForm. isSignUpMode: ${isSignUpMode}. Error:`, error);
+      console.error(`Auth Error (isSignUpMode: ${isSignUpMode}):`, error, "Data:", data);
       let errorMessage = "An unexpected error occurred. Please try again.";
-      if (error.code) { // Firebase errors have a 'code' property
+      if (error.code) {
         switch (error.code) {
           case 'auth/email-already-in-use':
             errorMessage = 'This email is already registered. Please log in or use a different email.';
@@ -110,8 +104,6 @@ export function LoginForm() {
           case 'auth/weak-password':
             errorMessage = 'Password is too weak. It should be at least 6 characters.';
             break;
-          // 'auth/invalid-credential' will be handled by the 'else' in the login path above
-          // if loginWithEmailPassword returns false. If it throws, it would be caught here too.
           case 'auth/user-not-found':
           case 'auth/wrong-password':
           case 'auth/invalid-credential':
@@ -128,7 +120,7 @@ export function LoginForm() {
       });
     }
   };
-  
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-background to-secondary/30 p-4">
       <Card className="w-full max-w-md shadow-2xl">
@@ -143,9 +135,9 @@ export function LoginForm() {
         </CardHeader>
         <CardContent>
           {isClient ? (
-            <form 
-              key={isSignUpMode ? 'signup-form' : 'login-form'} 
-              onSubmit={form.handleSubmit(handleSubmitAuth)} 
+            <form
+              key={isSignUpMode ? 'signup-form' : 'login-form'}
+              onSubmit={form.handleSubmit(handleSubmitAuth)}
               className="space-y-6"
             >
               <div className="space-y-4">
@@ -154,11 +146,11 @@ export function LoginForm() {
                     <Label htmlFor="name">Full Name</Label>
                     <div className="relative">
                       <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                      <Input 
-                        id="name" 
+                      <Input
+                        id="name"
                         type="text"
-                        placeholder="e.g., Alex Ryder" 
-                        {...form.register("name" as any)} 
+                        placeholder="e.g., Alex Ryder"
+                        {...form.register("name" as any)}
                         className="pl-10"
                       />
                     </div>
@@ -169,10 +161,10 @@ export function LoginForm() {
                   <Label htmlFor="email">Email Address</Label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <Input 
-                      id="email" 
+                    <Input
+                      id="email"
                       type="email"
-                      placeholder="e.g., user@example.com" 
+                      placeholder="e.g., user@example.com"
                       {...form.register("email")}
                       className="pl-10"
                     />
@@ -183,9 +175,9 @@ export function LoginForm() {
                   <Label htmlFor="password">Password</Label>
                   <div className="relative">
                     <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <Input 
-                      id="password" 
-                      type="password" 
+                    <Input
+                      id="password"
+                      type="password"
                       placeholder="Enter your password"
                       {...form.register("password")}
                       className="pl-10"
@@ -193,9 +185,9 @@ export function LoginForm() {
                   </div>
                   {form.formState.errors.password && <p className="text-sm text-destructive">{form.formState.errors.password.message}</p>}
                 </div>
-                <Button 
-                  type="submit" 
-                  className="w-full" 
+                <Button
+                  type="submit"
+                  className="w-full"
                   disabled={authLoading || form.formState.isSubmitting}
                 >
                   {authLoading || form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
@@ -233,3 +225,4 @@ export function LoginForm() {
   );
 }
 
+    
