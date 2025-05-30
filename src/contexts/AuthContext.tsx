@@ -11,7 +11,7 @@ import {
   signInWithEmailAndPassword,
   updateProfile as updateFirebaseProfile
 } from 'firebase/auth';
-import { auth, db } from '@/lib/firebase';
+import { auth, db, isFirebaseSuccessfullyInitialized, firebaseInitializationError as globalFirebaseError } from '@/lib/firebase';
 import { doc, getDoc, setDoc, collection, addDoc, updateDoc, deleteDoc, query, orderBy, onSnapshot, Unsubscribe, where } from 'firebase/firestore';
 
 interface AuthContextType {
@@ -27,7 +27,8 @@ interface AuthContextType {
   updateHealthGoal: (updatedGoal: HealthGoal) => Promise<void>;
   deleteHealthGoal: (goalId: string) => Promise<void>;
   updateAiPreferences: (preferences: Partial<AiFeedbackPreferences>) => Promise<void>;
-  healthGoals: HealthGoal[]; // Expose healthGoals directly
+  healthGoals: HealthGoal[];
+  firebaseInitError: string | null; // Expose Firebase initialization error
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -42,6 +43,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [healthGoals, setHealthGoals] = useState<HealthGoal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // firebaseInitError will be derived from the imported globalFirebaseError
+
   const router = useRouter();
 
   const fetchUserProfileData = useCallback(async (user: FirebaseUser): Promise<UserProfile | null> => {
@@ -60,7 +63,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const fetchedData = userDocSnap.data();
         profileData = {
           id: user.uid,
-          name: fetchedData.name || user.displayName || 'User', // Prioritize Firestore, then Auth, then fallback
+          name: fetchedData.name || user.displayName || 'User',
           email: fetchedData.email === undefined ? null : fetchedData.email,
           phoneNumber: fetchedData.phoneNumber === undefined ? null : fetchedData.phoneNumber,
           aiFeedbackPreferences: { ...initialDefaultAiPreferences, ...(fetchedData.aiFeedbackPreferences || {}) },
@@ -68,11 +71,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           allergies: fetchedData.allergies === undefined ? null : fetchedData.allergies,
           riskFactors: fetchedData.riskFactors === undefined ? null : fetchedData.riskFactors,
           emergencyContact: fetchedData.emergencyContact === undefined ? null : fetchedData.emergencyContact,
-          healthGoals: [], // Populated by separate listener, initialized here
+          healthGoals: [], 
         };
       } else {
         console.log(`AuthContext (fetchUserProfileData): No profile found for user ${user.uid}. Creating new profile in Firestore.`);
-        const nameForNewProfile = user.displayName || 'User'; // Use Auth displayName or generic 'User'
+        const nameForNewProfile = user.displayName || 'User';
         
         const profileDataForFirestore: Omit<UserProfile, 'healthGoals' | 'id'> = {
           name: nameForNewProfile,
@@ -103,31 +106,43 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     let userProfileUnsubscribe: Unsubscribe | undefined;
     let healthGoalsUnsubscribe: Unsubscribe | undefined;
+    let authListenerUnsubscribe: Unsubscribe | undefined;
 
-    console.log("AuthContext (useEffect): Setting up onAuthStateChanged listener.");
-    const authUnsubscribe = onAuthStateChanged(auth, async (user) => {
+    if (!isFirebaseSuccessfullyInitialized || !auth) {
+      console.warn(
+        "AuthContext: Firebase not successfully initialized or auth instance is missing. Skipping Firebase listeners setup.",
+        globalFirebaseError || `isFirebaseSuccessfullyInitialized: ${isFirebaseSuccessfullyInitialized}, auth defined: ${!!auth}`
+      );
+      setFirebaseUser(null);
+      setUserProfile(null);
+      setHealthGoals([]);
+      setIsLoading(false); // Ensure loading stops if Firebase isn't up
+      return; // Exit early
+    }
+
+    console.log("AuthContext: Firebase initialized. Setting up onAuthStateChanged listener.");
+    authListenerUnsubscribe = onAuthStateChanged(auth, async (user) => {
       console.log("AuthContext (onAuthStateChanged): Auth state changed. User UID:", user ? user.uid : 'null');
-      setIsLoading(true);
+      setIsLoading(true); // Start loading for this new auth state
 
       if (userProfileUnsubscribe) userProfileUnsubscribe();
       if (healthGoalsUnsubscribe) healthGoalsUnsubscribe();
-      setHealthGoals([]); // Clear health goals on auth change
+      setHealthGoals([]);
 
       if (user) {
         setFirebaseUser(user);
         const initialProfile = await fetchUserProfileData(user);
-        setUserProfile(initialProfile); // Set initial profile
+        setUserProfile(initialProfile);
 
-        if (db) { // Ensure db is available before setting up listeners
+        if (db) {
             const userDocRef = doc(db, "users", user.uid);
-            // Listener for main user profile document (excluding healthGoals)
             userProfileUnsubscribe = onSnapshot(userDocRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const updatedFSProfileData = docSnap.data();
                     setUserProfile(prevProfile => ({
-                        ...(prevProfile || {} as UserProfile), // Keep parts of previous profile if not in snapshot (like healthGoals)
+                        ...(prevProfile || {} as UserProfile),
                         id: user.uid,
-                        name: updatedFSProfileData.name || user.displayName || 'User', // Prioritize Firestore name
+                        name: updatedFSProfileData.name || user.displayName || 'User',
                         email: updatedFSProfileData.email === undefined ? (prevProfile?.email) : updatedFSProfileData.email,
                         phoneNumber: updatedFSProfileData.phoneNumber === undefined ? (prevProfile?.phoneNumber) : updatedFSProfileData.phoneNumber,
                         aiFeedbackPreferences: { ...initialDefaultAiPreferences, ...(updatedFSProfileData.aiFeedbackPreferences || {}) },
@@ -135,7 +150,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                         allergies: updatedFSProfileData.allergies === undefined ? (prevProfile?.allergies) : updatedFSProfileData.allergies,
                         riskFactors: updatedFSProfileData.riskFactors === undefined ? (prevProfile?.riskFactors) : updatedFSProfileData.riskFactors,
                         emergencyContact: updatedFSProfileData.emergencyContact === undefined ? (prevProfile?.emergencyContact) : updatedFSProfileData.emergencyContact,
-                        healthGoals: prevProfile?.healthGoals || [], // Preserve healthGoals from its own listener
+                        healthGoals: prevProfile?.healthGoals || [],
                     }));
                     console.log(`AuthContext (onSnapshot userDoc): Profile updated for user ${user.uid}. Name from FS: ${updatedFSProfileData.name}`);
                 } else {
@@ -145,14 +160,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 console.error(`AuthContext (onSnapshot userDoc): Error listening to user profile for ${user.uid}:`, error);
             });
 
-            // Listener for healthGoals subcollection
             const goalsColRef = collection(db, `users/${user.uid}/healthGoals`);
             const q = query(goalsColRef, orderBy("description"));
             healthGoalsUnsubscribe = onSnapshot(q, (snapshot) => {
                 const fetchedGoals: HealthGoal[] = [];
                 snapshot.forEach(doc => fetchedGoals.push({ id: doc.id, ...doc.data() } as HealthGoal));
-                setHealthGoals(fetchedGoals); // Update separate healthGoals state
-                // Also update healthGoals within userProfile if needed, though direct access might be cleaner
+                setHealthGoals(fetchedGoals);
                 setUserProfile(prevProfile => prevProfile ? { ...prevProfile, healthGoals: fetchedGoals } : null);
                 console.log(`AuthContext (onSnapshot healthGoals): Health goals updated for user ${user.uid}. Count: ${fetchedGoals.length}`);
             }, (error) => {
@@ -169,27 +182,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setUserProfile(null);
         setHealthGoals([]);
       }
-      setIsLoading(false);
+      setIsLoading(false); // Finish loading for this auth state
       console.log(`AuthContext (onAuthStateChanged): Processing complete. isLoading: ${isLoading}, isAuthenticated: ${!!user}`);
     });
 
     return () => {
       console.log("AuthContext (useEffect cleanup): Cleaning up listeners.");
-      authUnsubscribe();
+      if (authListenerUnsubscribe) authListenerUnsubscribe();
       if (userProfileUnsubscribe) userProfileUnsubscribe();
       if (healthGoalsUnsubscribe) healthGoalsUnsubscribe();
     };
-  }, [fetchUserProfileData]); // Keep fetchUserProfileData in dependency array
+  }, [fetchUserProfileData, isFirebaseSuccessfullyInitialized, globalFirebaseError]); // Dependencies
 
 
   const signUpWithEmailPassword = async (email: string, password: string, name: string): Promise<boolean> => {
+    if (!isFirebaseSuccessfullyInitialized || !auth || !db) {
+      console.error("AuthContext (signUpWithEmailPassword): Firebase not initialized. Cannot sign up.");
+      throw new Error("Signup service not available. Firebase not initialized.");
+    }
     console.log(`AuthContext (signUpWithEmailPassword BEGIN): Attempting sign up for email: ${email}, name: ${name}`);
     setIsLoading(true);
-    if (!auth || !db) {
-      console.error("AuthContext (signUpWithEmailPassword): Auth or DB not initialized.");
-      setIsLoading(false);
-      throw new Error("Signup service not available. Please try again later.");
-    }
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
@@ -199,7 +211,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.log(`AuthContext (signUpWithEmailPassword): Firebase profile display name UPDATED for UID: ${user.uid} to ${name}.`);
 
       const newUserProfileDataForFirestore: Omit<UserProfile, 'healthGoals' | 'id'> = {
-        name: name, // Use the name from the signup form directly
+        name: name,
         email: user.email || null,
         phoneNumber: user.phoneNumber || null,
         aiFeedbackPreferences: { ...initialDefaultAiPreferences },
@@ -212,9 +224,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       await setDoc(userDocRef, newUserProfileDataForFirestore);
       console.log(`AuthContext (signUpWithEmailPassword): Firestore profile document CREATED for UID: ${user.uid} with name: ${name}.`);
       
-      // onAuthStateChanged will now handle fetching and setting the profile correctly.
       console.log("AuthContext (signUpWithEmailPassword END): Sign up successful. Waiting for onAuthStateChanged to finalize state.");
-      // setIsLoading(false); // Let onAuthStateChanged handle global isLoading
       return true;
     } catch (error: any) {
       console.error(`AuthContext (signUpWithEmailPassword CATCH): Error during sign up for ${email}. Code: ${error.code}, Message: ${error.message}. Error object:`, error);
@@ -224,18 +234,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const loginWithEmailPassword = async (email: string, password: string): Promise<boolean> => {
-    console.log(`AuthContext (loginWithEmailPassword BEGIN): Attempting login for email: ${email}`);
-    setIsLoading(true);
-    if (!auth) {
-      console.error("AuthContext (loginWithEmailPassword): Auth not initialized.");
+    if (!isFirebaseSuccessfullyInitialized || !auth) {
+      console.error("AuthContext (loginWithEmailPassword): Firebase not initialized. Cannot log in.");
       setIsLoading(false);
       return false;
     }
+    console.log(`AuthContext (loginWithEmailPassword BEGIN): Attempting login for email: ${email}`);
+    setIsLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      // onAuthStateChanged will handle setting firebaseUser, userProfile, and final isLoading.
       console.log("AuthContext (loginWithEmailPassword END): loginWithEmailPassword successful. Waiting for onAuthStateChanged.");
-      // setIsLoading(false); // Let onAuthStateChanged handle global isLoading
       return true;
     } catch (error: any) {
       console.error(`AuthContext (loginWithEmailPassword CATCH): Firebase signInWithEmailAndPassword FAILED for ${email}. Code: ${error.code}, Message: ${error.message}.`);
@@ -248,25 +256,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const logout = async () => {
-    console.log("AuthContext (logout BEGIN): Attempting logout.");
-    setIsLoading(true);
-    if (!auth) {
-      console.error("AuthContext (logout): Auth not initialized.");
-      setIsLoading(false);
+    if (!isFirebaseSuccessfullyInitialized || !auth) {
+      console.error("AuthContext (logout): Firebase not initialized. Cannot log out.");
       return;
     }
+    console.log("AuthContext (logout BEGIN): Attempting logout.");
+    setIsLoading(true);
     try {
       await signOut(auth);
       console.log("AuthContext (logout END): Logout successful. Waiting for onAuthStateChanged to clear user state.");
     } catch (error) {
       console.error("AuthContext (logout CATCH): Logout error:", error);
+      setIsLoading(false); // Explicitly set loading false on error here
     }
-    // setIsLoading(false); // Let onAuthStateChanged handle final loading state
   };
 
   const updateUserProfileState = async (updatedProfileData: Partial<UserProfile>) => {
-    if (!firebaseUser || !db || !userProfile) {
-      console.warn("AuthContext (updateUserProfileState): Cannot update. User not authenticated, DB not available, or profile not loaded.");
+    if (!isFirebaseSuccessfullyInitialized || !firebaseUser || !db || !userProfile) {
+      console.warn("AuthContext (updateUserProfileState): Cannot update. Firebase not init, user not auth, or profile not loaded.");
       return Promise.reject(new Error("User not authenticated or profile not available."));
     }
     console.log(`AuthContext (updateUserProfileState): Attempting to update Firestore profile for ${firebaseUser.uid}. Data:`, updatedProfileData);
@@ -276,7 +283,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       const dataToUpdate: Record<string, any> = {};
       Object.entries(profileUpdatesFromArg).forEach(([key, value]) => {
-        // @ts-ignore
         dataToUpdate[key] = value === undefined ? null : value;
       });
 
@@ -294,8 +300,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const addHealthGoal = async (goalData: Omit<HealthGoal, 'id' | 'userId'>): Promise<HealthGoal | null> => {
-    if (!firebaseUser || !db) {
-      console.warn("AuthContext (addHealthGoal): Cannot add. User not authenticated or DB not available.");
+    if (!isFirebaseSuccessfullyInitialized || !firebaseUser || !db) {
+      console.warn("AuthContext (addHealthGoal): Cannot add. Firebase not init or user not auth.");
       return null;
     }
     console.log(`AuthContext (addHealthGoal): Adding health goal for user ${firebaseUser.uid}. Data:`, goalData);
@@ -316,7 +322,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const updateHealthGoal = async (updatedGoal: HealthGoal) => {
-    if (!firebaseUser || !db || !updatedGoal.id) {
+    if (!isFirebaseSuccessfullyInitialized || !firebaseUser || !db || !updatedGoal.id) {
       console.warn("AuthContext (updateHealthGoal): Cannot update. Invalid parameters. Goal ID:", updatedGoal.id);
       return;
     }
@@ -337,8 +343,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const deleteHealthGoal = async (goalId: string) => {
-    if (!firebaseUser || !db) {
-      console.warn("AuthContext (deleteHealthGoal): Cannot delete. User not authenticated or DB not available.");
+    if (!isFirebaseSuccessfullyInitialized || !firebaseUser || !db) {
+      console.warn("AuthContext (deleteHealthGoal): Cannot delete. Firebase not init or user not auth.");
       return;
     }
     console.log(`AuthContext (deleteHealthGoal): Deleting health goal ID ${goalId} for user ${firebaseUser.uid}.`);
@@ -353,7 +359,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const updateAiPreferences = async (preferences: Partial<AiFeedbackPreferences>) => {
-    if (!firebaseUser || !db || !userProfile) {
+    if (!isFirebaseSuccessfullyInitialized || !firebaseUser || !db || !userProfile) {
       console.warn("AuthContext (updateAiPreferences): Cannot update. Invalid parameters or profile not loaded.");
       return Promise.reject(new Error("User not authenticated or profile not available for AI pref update."));
     }
@@ -371,7 +377,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <AuthContext.Provider value={{
-      isAuthenticated: !!firebaseUser && !!userProfile,
+      isAuthenticated: !!firebaseUser && !!userProfile && isFirebaseSuccessfullyInitialized, // isAuthenticated depends on successful init
       firebaseUser,
       userProfile,
       signUpWithEmailPassword,
@@ -383,7 +389,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       updateHealthGoal,
       deleteHealthGoal,
       updateAiPreferences,
-      healthGoals // Provide healthGoals directly from the context
+      healthGoals,
+      firebaseInitError: globalFirebaseError // Pass the global error directly
     }}>
       {children}
     </AuthContext.Provider>
@@ -395,8 +402,5 @@ export const useAuth = () => {
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
-  // console.log("useAuth hook called, current context value:", context); // For debugging
   return context;
 };
-
-    
