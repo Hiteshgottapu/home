@@ -9,11 +9,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
-import { Loader2, Mail, KeyRound, User } from 'lucide-react';
+import { Loader2, Mail, KeyRound, User, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { AppLogo } from '@/components/layout/AppLogo';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const LoginSchema = z.object({
   email: z.string().email("Invalid email address."),
@@ -31,7 +32,7 @@ type SignUpFormValues = z.infer<typeof SignUpSchema>;
 
 export function LoginForm() {
   const [isSignUpMode, setIsSignUpMode] = useState(false);
-  const { loginWithEmailPassword, signUpWithEmailPassword, isLoading: authLoading } = useAuth();
+  const { loginWithEmailPassword, signUpWithEmailPassword, isLoading: authLoading, firebaseInitError } = useAuth();
   const { toast } = useToast();
   const [isClient, setIsClient] = useState(false);
 
@@ -60,6 +61,15 @@ export function LoginForm() {
 
 
   const handleSubmitAuth: SubmitHandler<LoginFormValues | SignUpFormValues> = async (data) => {
+    if (firebaseInitError) {
+      toast({
+        title: "Service Unavailable",
+        description: "Login/Signup is temporarily unavailable due to a configuration issue. Please see details on the page.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const operationMode = isSignUpMode ? 'Sign Up' : 'Login';
     console.log(`LoginForm (handleSubmitAuth BEGIN): Intending to ${operationMode}. isSignUpMode: ${isSignUpMode}. Submitted Data (password omitted):`, { ...data, password: '***' });
 
@@ -185,6 +195,17 @@ export function LoginForm() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {firebaseInitError && (
+            <Alert variant="destructive" className="mb-6">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>System Configuration Error</AlertTitle>
+              <AlertDescription>
+                Login/Signup is temporarily unavailable. Please ensure your Firebase environment variables (API Key, Auth Domain, Project ID) are correctly set in the <code>.env</code> file and restart the server.
+                <br />
+                <span className="text-xs mt-1 block">Details: {firebaseInitError}</span>
+              </AlertDescription>
+            </Alert>
+          )}
           <form
             key={isSignUpMode ? 'signup-form' : 'login-form'} // Crucial for re-initializing RHF on mode change
             onSubmit={form.handleSubmit(handleSubmitAuth)}
@@ -201,7 +222,7 @@ export function LoginForm() {
                     placeholder="e.g., John Doe"
                     {...form.register("name" as any)} // RHF knows 'name' is for SignUpFormValues
                     className={`pl-10 ${form.formState.errors.name ? "border-destructive" : ""}`}
-                    disabled={authLoading}
+                    disabled={authLoading || !!firebaseInitError}
                   />
                 </div>
                 {form.formState.errors.name && <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>}
@@ -217,7 +238,7 @@ export function LoginForm() {
                     placeholder="e.g., user@example.com"
                     {...form.register("email")}
                     className={`pl-10 ${form.formState.errors.email ? "border-destructive" : ""}`}
-                    disabled={authLoading}
+                    disabled={authLoading || !!firebaseInitError}
                   />
               </div>
               {form.formState.errors.email && <p className="text-sm text-destructive">{form.formState.errors.email.message}</p>}
@@ -232,12 +253,12 @@ export function LoginForm() {
                     placeholder="••••••••"
                     {...form.register("password")}
                     className={`pl-10 ${form.formState.errors.password ? "border-destructive" : ""}`}
-                    disabled={authLoading}
+                    disabled={authLoading || !!firebaseInitError}
                   />
               </div>
               {form.formState.errors.password && <p className="text-sm text-destructive">{form.formState.errors.password.message}</p>}
             </div>
-            <Button type="submit" className="w-full text-base py-3" disabled={authLoading}>
+            <Button type="submit" className="w-full text-base py-3" disabled={authLoading || !!firebaseInitError}>
               {authLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : (isSignUpMode ? <User className="mr-2 h-5 w-5" /> : <KeyRound className="mr-2 h-5 w-5" />)}
               {authLoading ? 'Processing...' : (isSignUpMode ? 'Create Account' : 'Login')}
             </Button>
@@ -251,7 +272,7 @@ export function LoginForm() {
               className="p-0 h-auto text-primary hover:underline"
               onClick={() => setIsSignUpMode(!isSignUpMode)}
               type="button" // Important: type="button" to prevent form submission
-              disabled={authLoading}
+              disabled={authLoading || !!firebaseInitError}
             >
               {isSignUpMode ? 'Login here' : 'Sign up now'}
             </Button>
