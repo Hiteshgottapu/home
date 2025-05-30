@@ -52,7 +52,7 @@ export default function MedicalSearchPage() {
   };
 
   const getAvailabilityInfo = (availability?: string) => {
-    if (!availability) return { text: 'Info N/A', color: 'text-muted-foreground', Icon: PackageX };
+    if (!availability || availability === "Info not available") return { text: 'Availability N/A', color: 'text-muted-foreground', Icon: PackageX };
     const lowerAvailability = availability.toLowerCase();
     if (lowerAvailability.includes('in stock')) return { text: availability, color: 'text-green-600 dark:text-green-400', Icon: PackageCheck };
     if (lowerAvailability.includes('low stock')) return { text: availability, color: 'text-amber-600 dark:text-amber-400', Icon: PackageCheck };
@@ -69,19 +69,16 @@ export default function MedicalSearchPage() {
             <CardTitle className="text-4xl font-extrabold tracking-tight text-primary">Medicine Price Finder</CardTitle>
           </div>
           <CardDescription className="text-lg text-muted-foreground max-w-xl mx-auto">
-            Discover and compare medicine prices from various online pharmacies.
-            Enter a medicine name below to start.
+            Compare medicine prices from various online pharmacies. Results are live-scraped and may vary.
           </CardDescription>
         </CardHeader>
         
         <CardContent className="p-6 space-y-6">
           <Alert variant="default" className="bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300">
             <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-            <AlertTitle className="font-semibold">Disclaimer & Beta Notice</AlertTitle>
+            <AlertTitle className="font-semibold">Important Notice</AlertTitle>
             <AlertDescription className="text-xs">
-              This feature is for informational purposes only and uses **mock data** for demonstration. Prices and availability are illustrative.
-              Always verify details directly with the pharmacy. This tool does not endorse any specific pharmacy or medication.
-              Actual web scraping is not implemented in this prototype.
+              This feature attempts to scrape live data from pharmacy websites. Prices, availability, and product links are subject to real-time changes and accuracy is not guaranteed. This tool is for informational purposes only and does not endorse any specific pharmacy or medication. Listings may be incomplete or change without notice. Always verify details directly with the pharmacy.
             </AlertDescription>
           </Alert>
 
@@ -112,8 +109,8 @@ export default function MedicalSearchPage() {
           {isLoading && (
             <div className="text-center py-12 flex flex-col items-center justify-center space-y-3">
               <Loader2 className="h-16 w-16 animate-spin text-primary mx-auto" />
-              <p className="text-lg font-medium text-muted-foreground">Searching for "<span className="text-primary">{searchTerm}</span>"...</p>
-              <p className="text-sm text-muted-foreground">Please wait a moment.</p>
+              <p className="text-lg font-medium text-muted-foreground">Searching for "<span className="text-primary">{searchTerm}</span>" across pharmacies...</p>
+              <p className="text-sm text-muted-foreground">This may take a moment as we fetch live data.</p>
             </div>
           )}
 
@@ -122,7 +119,7 @@ export default function MedicalSearchPage() {
               <SearchX size={64} className="mx-auto mb-6 text-muted-foreground opacity-60" data-ai-hint="magnifying glass document" />
               <h3 className="text-2xl font-semibold text-foreground mb-3">No Results for "{searchTerm}"</h3>
               <p className="text-base text-muted-foreground max-w-md mx-auto">
-                {searchTerm.trim() === '' ? "Please type a medicine name into the search bar above to find prices." : "We couldn't find any listings. Try checking the spelling or searching for a different medicine name. If searching by brand, try the generic name, or vice-versa."}
+                {searchTerm.trim() === '' ? "Please type a medicine name into the search bar above to find prices." : "We couldn't find any listings for this medicine. Try checking the spelling, using a more generic name, or the medicine might not be available on the searched platforms."}
               </p>
             </div>
           )}
@@ -132,7 +129,11 @@ export default function MedicalSearchPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
                 {results.map((result, index) => {
                   const availabilityInfo = getAvailabilityInfo(result.availability);
-                  const isOutOfStock = result.availability?.toLowerCase().includes('out of stock');
+                  const isOutOfStock = result.availability?.toLowerCase().includes('out of stock') || result.availability === "Info not available";
+                  const priceDisplay = result.price.replace(/[^0-9.,]/g, '').trim() || "N/A";
+                  const canVisitPharmacy = result.addToCartLink && result.addToCartLink !== "#" && !result.addToCartLink.includes('search') && !result.addToCartLink.includes(searchTerm);
+
+
                   return (
                     <Card key={index} className="shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out flex flex-col group transform hover:-translate-y-1 active:shadow-md active:translate-y-0 border border-border hover:border-primary/30">
                       <CardHeader className="pb-2 pt-4">
@@ -144,7 +145,7 @@ export default function MedicalSearchPage() {
                                     fill
                                     sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                                     className="object-contain transition-transform duration-300 group-hover:scale-105"
-                                    data-ai-hint="medicine product"
+                                    data-ai-hint={result.drugName ? result.drugName.split(' ').slice(0,2).join(' ') : "medicine product"}
                                 />
                             </div>
                         )}
@@ -157,9 +158,9 @@ export default function MedicalSearchPage() {
                       </CardHeader>
                       <CardContent className="space-y-2.5 flex-grow pt-1 pb-3">
                         <div className="flex items-baseline gap-2">
-                          <p className="text-3xl font-bold text-primary flex items-center">
+                           <p className="text-3xl font-bold text-primary flex items-center">
                             <DollarSign className="h-6 w-6 mr-0.5" />
-                            {result.price.replace('₹', '')} {/* Assuming price includes ₹ */}
+                            {priceDisplay}
                           </p>
                           {result.originalPrice && (
                             <p className="text-sm text-muted-foreground line-through">
@@ -172,23 +173,21 @@ export default function MedicalSearchPage() {
                             {result.discount}
                           </Badge>
                         )}
-                        {result.availability && (
-                          <p className={cn("text-sm font-medium flex items-center gap-1.5", availabilityInfo.color)}>
+                        <p className={cn("text-sm font-medium flex items-center gap-1.5", availabilityInfo.color)}>
                             <availabilityInfo.Icon size={16} /> {availabilityInfo.text}
-                          </p>
-                        )}
+                        </p>
                       </CardContent>
                       <CardFooter className="mt-auto pt-3 pb-4">
                         <Button 
                             asChild 
-                            variant={isOutOfStock ? "outline" : "default"} 
-                            className={cn("w-full text-sm py-3 transition-all duration-200 active:scale-95", isOutOfStock && "border-muted-foreground/50 text-muted-foreground hover:bg-muted/20 dark:hover:bg-muted/40")}
-                            disabled={isOutOfStock || !result.addToCartLink || result.addToCartLink === '#'}
+                            variant={!canVisitPharmacy || isOutOfStock ? "outline" : "default"} 
+                            className={cn("w-full text-sm py-3 transition-all duration-200 active:scale-95", (!canVisitPharmacy || isOutOfStock) && "border-muted-foreground/50 text-muted-foreground hover:bg-muted/20 dark:hover:bg-muted/40")}
+                            disabled={!canVisitPharmacy || isOutOfStock}
                         >
-                          <a href={result.addToCartLink && result.addToCartLink !== '#' && !isOutOfStock ? result.addToCartLink : undefined} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center">
+                          <a href={canVisitPharmacy && !isOutOfStock ? result.addToCartLink : undefined} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center">
                             {isOutOfStock ? <PackageX className="mr-2 h-4 w-4"/> : <ShoppingCart className="mr-2 h-4 w-4" />}
-                            {isOutOfStock ? 'Out of Stock' : (result.addToCartLink && result.addToCartLink !== '#' ? 'Go to Pharmacy' : 'Link N/A')}
-                            {!isOutOfStock && result.addToCartLink && result.addToCartLink !== '#' && <ExternalLink className="ml-auto h-3.5 w-3.5 opacity-70" />}
+                            {isOutOfStock ? 'Out of Stock' : (canVisitPharmacy ? 'Go to Pharmacy' : 'Link N/A')}
+                            {canVisitPharmacy && !isOutOfStock && <ExternalLink className="ml-auto h-3.5 w-3.5 opacity-70" />}
                           </a>
                         </Button>
                       </CardFooter>
@@ -203,4 +202,3 @@ export default function MedicalSearchPage() {
     </div>
   );
 }
-

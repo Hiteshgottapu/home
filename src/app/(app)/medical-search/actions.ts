@@ -2,87 +2,238 @@
 "use server";
 
 import type { ScrapedMedicineResult } from '@/types';
+import axios from 'axios';
+import * as cheerio from 'cheerio';
+import Fuse from 'fuse.js';
 
 interface ActionResult {
   data?: ScrapedMedicineResult[];
   error?: string;
 }
 
-const PHARMACY_PLATFORMS = ["Truemeds", "PharmEasy", "Tata 1mg", "Netmeds", "Apollo Pharmacy", "Wellness Forever"];
+interface PlatformConfig {
+  url: (medicine: string) => string;
+  nameClass: string;
+  priceClass: string;
+  // Optional: Selectors for image, original price, discount, availability, add to cart link
+  imageClass?: string;
+  originalPriceClass?: string;
+  discountClass?: string;
+  availabilityClass?: string;
+  linkSelector?: string; // Selector for the product link itself
+  linkBaseUrl?: string; // Base URL if link is relative
+}
 
-// MOCK IMPLEMENTATION - Simulates scraping results
-export async function searchPharmaciesAction(searchTerm: string): Promise<ActionResult> {
-  console.log(`Server Action: Simulating pharmacy search for "${searchTerm}"`);
-
-  await new Promise(resolve => setTimeout(resolve, 1200)); // Simulate network delay
-
-  if (searchTerm.toLowerCase().includes("errorplease")) {
-    return { error: "Simulated server error: Could not connect to pharmacy aggregators." };
+const platforms: Record<string, PlatformConfig> = {
+  "Truemeds": {
+    url: (medicine) => `https://www.truemeds.in/search/${encodeURIComponent(medicine)}`,
+    nameClass: ".sc-a39eeb4f-12.daYLth", // These selectors are from your example
+    priceClass: ".sc-a39eeb4f-17.iwZSqt",
+    linkSelector: "a[href^='/product/']", // Example, needs verification
+    linkBaseUrl: "https://www.truemeds.in",
+  },
+  "PharmEasy": {
+    url: (medicine) => `https://pharmeasy.in/search/all?name=${encodeURIComponent(medicine)}`,
+    nameClass: ".ProductCard_medicineName__Uzjm7",
+    priceClass: ".ProductCard_unitPriceDecimal__Ur26V", // This might be just the decimal part.
+    // Price might be combination of .ProductCard_gcdDiscountContainer__KqYTG and .ProductCard_unitPriceDecimal__Ur26V
+    // Or .ProductCard_mrpPrice__5vJdM and .ProductCard_majorDiscountPrice__7ZzVb
+    // PharmEasy selectors are complex and might need more specific handling for full price.
+    linkSelector: ".ProductCard_productCardContainer__dT8SA", // The whole card is usually a link
+    linkBaseUrl: "https://pharmeasy.in",
+  },
+  "Tata 1mg": {
+    url: (medicine) => `https://www.1mg.com/search/all?filter=true&name=${encodeURIComponent(medicine)}`,
+    nameClass: ".style__pro-title___3G3rr",
+    priceClass: ".style__price-tag___KzOkY",
+    linkSelector: ".style__product-link___1hWpa",
+    linkBaseUrl: "https://www.1mg.com",
+  },
+  "Netmeds": {
+    url: (medicine) => `https://www.netmeds.com/catalogsearch/result?q=${encodeURIComponent(medicine)}`, // Adjusted URL q parameter
+    nameClass: ".clsgetname",
+    priceClass: ".final-price",
+    linkSelector: ".category_name > a",
+    linkBaseUrl: "https://www.netmeds.com",
   }
-  if (searchTerm.toLowerCase() === "notfound" || searchTerm.trim() === "") {
-    return { data: [] };
-  }
+};
 
-  const baseDrugName = searchTerm.charAt(0).toUpperCase() + searchTerm.slice(1).toLowerCase();
-  const mockResults: ScrapedMedicineResult[] = [];
+async function scrapePlatform(platformName: string, medicineName: string, config: PlatformConfig): Promise<ScrapedMedicineResult[]> {
+  console.log(`Scraping ${platformName} for ${medicineName} at URL: ${config.url(medicineName)}`);
+  try {
+    const { data } = await axios.get(config.url(medicineName), {
+      headers: { 
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        // Some sites might need more headers like Accept-Encoding, Referer, etc.
+      },
+      timeout: 15000 // 15 seconds timeout
+    });
 
-  const randomInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
+    const $ = cheerio.load(data);
+    const results: ScrapedMedicineResult[] = [];
+    const productElements: cheerio.Element[] = [];
 
-  // Generate a few results for each platform, or randomly skip some
-  PHARMACY_PLATFORMS.forEach(platform => {
-    if (Math.random() > 0.3) { // Simulate platform not always having the drug or being scraped
-      const numResultsForPlatform = randomInt(1, 2); // 1 or 2 results per "successful" platform
+    // Generic approach: find common ancestor of name and price if they are separate
+    // This is highly dependent on specific site structure and may need refinement per site.
+    // For now, we assume name and price are within iterable "product" blocks.
+    // A more robust way is to identify product blocks first.
+    // Let's try to find product blocks based on name selector's parent or a common wrapper.
+    // This part is heuristic and might need adjustment per platform.
 
-      for (let i = 0; i < numResultsForPlatform; i++) {
-        const strengthVariant = ["10mg", "20mg", "500mg", "250mg", "50mg/ml Syrup", "1% Ointment"];
-        const packSizeVariant = ["Pack of 10", "Bottle of 100ml", "30 Capsules", "15 Tablets", "Tube of 30g"];
-        
-        const currentStrength = strengthVariant[randomInt(0, strengthVariant.length - 1)];
-        const currentPackSize = packSizeVariant[randomInt(0, packSizeVariant.length - 1)];
-        const drugFullName = `${baseDrugName} ${currentStrength} (${currentPackSize})`;
+    let nameElements: cheerio.Cheerio<cheerio.Element>;
+    let priceElements: cheerio.Cheerio<cheerio.Element>;
 
-        const price = (randomInt(50, 5000) / 100).toFixed(2);
-        const originalPriceNum = parseFloat(price) * (1 + randomInt(10, 40) / 100);
-        const originalPrice = Math.random() > 0.4 ? originalPriceNum.toFixed(2) : undefined;
-        
-        let discount: string | undefined;
-        if (originalPrice) {
-          discount = `${Math.round(((originalPriceNum - parseFloat(price)) / originalPriceNum) * 100)}% off`;
-        } else if (Math.random() < 0.2) {
-          discount = `${randomInt(5, 25)}% off`; // Flat discount
+    // Tata 1mg specific selector logic: Product items seem to be within `div.style__product-card___1gbex`
+    // PharmEasy: Product items `div.ProductCard_productCardContainer__dT8SA`
+    // Truemeds: Items in `div.sc-a39eeb4f-0.sc-a39eeb4f-1.cvyqGw.fepYFX` (this may vary)
+    // Netmeds: Items in `li.ais-InfiniteHits-item`
+
+    // This is a simplified example; real-world scraping needs more robust item block detection.
+    // For this implementation, we'll rely on the name and price selectors directly and zip them,
+    // assuming they appear in corresponding order for each item.
+    
+    nameElements = $(config.nameClass);
+    priceElements = $(config.priceClass);
+    
+    const extractedItems: {name: string, price: string, elementContext: cheerio.Cheerio<cheerio.Element>}[] = [];
+
+    nameElements.each((i, el) => {
+      const name = $(el).text().trim();
+      const priceEl = priceElements.eq(i); // Assume corresponding price
+      const price = priceEl.text().trim();
+      if (name && price) {
+        extractedItems.push({ name, price, elementContext: $(el) });
+      }
+    });
+
+
+    console.log(`Platform ${platformName}: Found ${extractedItems.length} potential items.`);
+
+    if (extractedItems.length === 0) {
+      console.warn(`No data pairs (name/price) found on ${platformName} for ${medicineName} using selectors: Name='${config.nameClass}', Price='${config.priceClass}'.`);
+      return [];
+    }
+
+    const fuse = new Fuse(extractedItems.map(item => item.name), { 
+        threshold: 0.4, // Adjust threshold for fuzziness
+        includeScore: true,
+        minMatchCharLength: Math.min(3, medicineName.length / 2), // Require some overlap
+     });
+    const searchTermLower = medicineName.toLowerCase();
+
+    for (const item of extractedItems) {
+      const nameLower = item.name.toLowerCase();
+      // Check for exact or partial substring match first
+      if (nameLower.includes(searchTermLower)) {
+        // Attempt to find a link. This needs to be relative to the item's context.
+        let productLink = config.linkBaseUrl || '';
+        if (config.linkSelector) {
+            // Try to find the link within the name element's parent or a product block
+            const linkElement = item.elementContext.closest('a').attr('href') || item.elementContext.find(config.linkSelector).attr('href') || item.elementContext.parentsUntil( (idx, elem) => $(elem).find(config.nameClass).length > 0 && $(elem).find(config.priceClass).length > 0 ).first().find('a').attr('href');
+            if (linkElement) {
+                if (linkElement.startsWith('http')) {
+                    productLink = linkElement;
+                } else if (config.linkBaseUrl) {
+                    productLink = new URL(linkElement, config.linkBaseUrl).href;
+                }
+            } else {
+                 productLink = config.url(medicineName); // Fallback to search URL
+            }
+        } else {
+            productLink = config.url(medicineName); // Fallback to search URL
         }
 
-        const availabilityStates = ["In Stock", "In Stock - Ships in 24h", "Low Stock", "Out of Stock", "Available on Order"];
-        const availability = availabilityStates[randomInt(0, availabilityStates.length - 1)];
-        
-        const isOutOfStock = availability.toLowerCase().includes('out of stock');
-        const addToCartLink = isOutOfStock ? "#" : `https://mock.${platform.toLowerCase().replace(/\s+/g, '')}.com/product/${baseDrugName.toLowerCase()}-${currentStrength.split(' ')[0]}?id=${randomInt(1000,9999)}`;
-
-        mockResults.push({
-          pharmacyName: platform,
-          drugName: drugFullName,
-          price: `₹${price}`,
-          originalPrice: originalPrice ? `₹${originalPrice}` : undefined,
-          discount,
-          availability,
-          addToCartLink,
-          imageUrl: `https://placehold.co/150x150.png?text=${baseDrugName.substring(0,3)}`, // Keep placeholder generic
+        results.push({
+          pharmacyName: platformName,
+          drugName: item.name,
+          price: item.price.replace(/[^0-9.,₹]/g, '').replace('₹', '').trim() || "N/A", // Clean price
+          addToCartLink: productLink,
+          availability: "Info not available", // Default
+          imageUrl: `https://placehold.co/150x150.png?text=${item.name.substring(0,3)}`,
+          originalPrice: undefined,
+          discount: undefined,
         });
       }
+      // Fuzzy matching as a fallback (can be less accurate)
+      // else {
+      //   const fuzzyMatches = fuse.search(item.name);
+      //   if (fuzzyMatches.length > 0 && fuzzyMatches[0].score && fuzzyMatches[0].score < 0.5 && fuzzyMatches[0].item.toLowerCase().includes(searchTermLower)) {
+      //      // Add to results with a note about fuzzy match if desired
+      //   }
+      // }
     }
-  });
+    
+    // Simple fuzzy filter on results if needed, or rely on initial check
+    const fuseResults = new Fuse(results.map(r => r.drugName), { threshold: 0.6, includeScore: true });
+    const finalFilteredResults = results.filter(r => {
+        const match = fuseResults.search(r.drugName);
+        // Basic check: ensure the original search term is somewhat present in the found drug name
+        return r.drugName.toLowerCase().includes(searchTermLower) || (match.length > 0 && (match[0].score || 1) < 0.6);
+    });
 
-  if (mockResults.length === 0 && !searchTerm.toLowerCase().includes("emptytest")) {
-     // If random filter made it empty, provide at least one generic result if not a specific "emptytest"
-      mockResults.push({
-        pharmacyName: "Generic Pharma Listings",
-        drugName: `${baseDrugName} (Generic Variant - Check Availability)`,
-        price: `₹${(Math.random() * 30 + 5).toFixed(2)}`,
-        availability: "Check Availability",
-        addToCartLink: "#",
-        imageUrl: `https://placehold.co/150x150.png?text=Gen`
-      });
+
+    console.log(`Platform ${platformName}: After filtering, ${finalFilteredResults.length} relevant items.`);
+    return finalFilteredResults.slice(0, 5); // Limit to 5 results per platform
+
+  } catch (error: any) {
+    console.error(`Error scraping ${platformName} for ${medicineName}: ${error.message}`, error.stack);
+    // Check if it's a timeout error
+    if (axios.isCancel(error)) {
+      console.error(`${platformName} request cancelled: ${error.message}`);
+    } else if (error.code === 'ECONNABORTED' || (error.response && error.response.status === 408)) {
+      console.error(`${platformName} request timed out.`);
+    } else if (error.response) {
+      console.error(`${platformName} responded with status ${error.response.status}: ${error.response.data ? JSON.stringify(error.response.data).substring(0,100) : ''}`);
+    }
+    return []; // Return empty array on error
+  }
+}
+
+export async function searchPharmaciesAction(searchTerm: string): Promise<ActionResult> {
+  if (!searchTerm.trim()) {
+    return { error: "Please enter a medicine name to search." };
+  }
+  console.log(`Server Action: Starting REAL pharmacy search for "${searchTerm}"`);
+
+  let allResults: ScrapedMedicineResult[] = [];
+  const platformPromises: Promise<ScrapedMedicineResult[]>[] = [];
+
+  for (const [platformName, config] of Object.entries(platforms)) {
+    platformPromises.push(scrapePlatform(platformName, searchTerm, config));
   }
 
-  return { data: mockResults };
+  try {
+    const settledResults = await Promise.allSettled(platformPromises);
+    
+    settledResults.forEach(result => {
+      if (result.status === 'fulfilled' && result.value) {
+        allResults = allResults.concat(result.value);
+      } else if (result.status === 'rejected') {
+        console.error("A platform scraping promise was rejected:", result.reason);
+      }
+    });
+
+    console.log(`Server Action: Total results from all platforms for "${searchTerm}": ${allResults.length}`);
+    
+    if (allResults.length === 0) {
+      return { data: [] }; // No results found overall
+    }
+    // Basic sorting: by price, then by name (ensure price is a number for sorting)
+    allResults.sort((a, b) => {
+        const priceA = parseFloat(a.price.replace(/[^0-9.]/g, ''));
+        const priceB = parseFloat(b.price.replace(/[^0-9.]/g, ''));
+        if (!isNaN(priceA) && !isNaN(priceB)) {
+            if(priceA !== priceB) return priceA - priceB;
+        }
+        return a.drugName.localeCompare(b.drugName);
+    });
+
+    return { data: allResults };
+
+  } catch (err: any) {
+    console.error("Unexpected error in searchPharmaciesAction orchestrating scrapes:", err);
+    return { error: "An unexpected error occurred during the search. Please try again." };
+  }
 }
