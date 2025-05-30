@@ -56,15 +56,16 @@ const getMedicineInfoFlow = ai.defineFlow(
   },
   async (input) => {
     const {output} = await getMedicineInfoPrompt(input);
-    // Ensure the disclaimer is always present, even if the model somehow misses it.
+    
     if (output && !output.disclaimer) {
+      // Ensure the disclaimer is always present, even if the model somehow misses it.
       return { ...output, disclaimer: DISCLAIMER_TEXT };
     }
     if (!output) {
-        // Fallback or error handling if the prompt fails
-        console.error(`Error generating medicine info for ${input.medicineName}`);
+        // Fallback or error handling if the prompt fails to produce output
+        console.error(`Error generating medicine info for ${input.medicineName}: The AI model did not return structured output. This could be due to the medicine name being too obscure, or an issue with the model's response generation.`);
         return {
-            overview: "Could not retrieve information for this medicine.",
+            overview: "Could not retrieve detailed information for this medicine at this time. The name might be too obscure or there might have been an issue processing it.",
             commonUses: [],
             generalDosageInformation: "N/A",
             commonPrecautions: [],
@@ -74,3 +75,4 @@ const getMedicineInfoFlow = ai.defineFlow(
     return output;
   }
 );
+
