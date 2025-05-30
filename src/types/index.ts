@@ -11,7 +11,10 @@ export interface MedicationDetail {
   name: string;
   dosage: string;
   frequency: string;
+  notes?: string; // Added from ScriptRecognizer flow
   info?: MedicineInfo;
+  isLoadingInfo?: boolean; // For loading detailed info
+  infoError?: string; // For errors fetching detailed info
 }
 
 export interface Prescription {
@@ -94,3 +97,4 @@ export interface DoctorNote {
   tags?: string[];
   userId?: string; // Added for potential direct queries
 }
+
