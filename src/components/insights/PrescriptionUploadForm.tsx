@@ -18,6 +18,7 @@ import { db, storage } from '@/lib/firebase';
 import { collection, addDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -116,9 +117,9 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
       console.error("CRITICAL: CLOUD_FUNCTION_URL is not configured in PrescriptionUploadForm.tsx");
       toast({
         title: "Configuration Error",
-        description: "The prescription analysis service is not configured. Please contact support.",
+        description: "The prescription analysis service is not configured. Please contact support or check the documentation.",
         variant: "destructive",
-        duration: 7000,
+        duration: 10000,
       });
       setIsUploadingToStorage(false);
       setIsAnalyzingWithCloudFunction(false);
@@ -226,6 +227,8 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
   else if (isAnalyzingWithCloudFunction) currentLoadingStep = "Analyzing with AI...";
 
   const canSubmit = !!selectedFile && !isLoading;
+  const isCloudFunctionUrlPlaceholder = CLOUD_FUNCTION_URL === 'YOUR_CLOUD_FUNCTION_URL_HERE';
+
 
   return (
     <Card id="upload" className="w-full shadow-lg">
@@ -234,17 +237,22 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
         <CardDescription>Securely upload your prescription (JPG, PNG - max 10MB). Our AI will help extract medicine names.</CardDescription>
       </CardHeader>
       <CardContent>
-        {CLOUD_FUNCTION_URL === 'YOUR_CLOUD_FUNCTION_URL_HERE' && (
-          <div className="mb-4 p-3 border border-destructive/50 bg-destructive/10 rounded-md text-destructive flex items-center gap-2">
-            <AlertTriangle size={20} />
-            <p className="text-sm font-medium">Configuration Incomplete: The prescription analysis service URL is not set. Please contact support.</p>
-          </div>
+        {isCloudFunctionUrlPlaceholder && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Service Configuration Incomplete</AlertTitle>
+            <AlertDescription>
+              The prescription analysis service is not yet configured. The URL for the analysis service is a placeholder.
+              Please update the `CLOUD_FUNCTION_URL` constant in `src/components/insights/PrescriptionUploadForm.tsx` with your deployed Cloud Function URL.
+              This feature will not work until this is configured.
+            </AlertDescription>
+          </Alert>
         )}
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           <div className="space-y-2">
             <Label htmlFor="prescriptionFile-input" className="sr-only">Prescription File</Label>
             <div className="flex items-center justify-center w-full">
-              <label htmlFor="prescriptionFile-input" className={`flex flex-col items-center justify-center w-full h-40 border-2 border-dashed rounded-lg bg-muted/50 hover:bg-muted/80 border-border hover:border-primary transition-colors ${isLoading ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}>
+              <label htmlFor="prescriptionFile-input" className={`flex flex-col items-center justify-center w-full h-40 border-2 border-dashed rounded-lg bg-muted/50 hover:bg-muted/80 border-border hover:border-primary transition-colors ${isLoading || isCloudFunctionUrlPlaceholder ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}>
                 <div className="flex flex-col items-center justify-center pt-5 pb-6">
                   <UploadCloud className="w-10 h-10 mb-3 text-muted-foreground" />
                   <p className="mb-2 text-sm text-muted-foreground"><span className="font-semibold text-primary">Click to upload</span> or drag and drop</p>
@@ -256,7 +264,7 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
                   className="hidden"
                   onChange={handleFileChange}
                   accept="image/jpeg,image/png"
-                  disabled={isLoading}
+                  disabled={isLoading || isCloudFunctionUrlPlaceholder}
                   ref={fileInputRef}
                 />
               </label>
@@ -284,7 +292,7 @@ export function PrescriptionUploadForm({ onUploadSuccess }: PrescriptionUploadFo
             )}
           </div>
 
-          <Button type="submit" className="w-full" disabled={!canSubmit || CLOUD_FUNCTION_URL === 'YOUR_CLOUD_FUNCTION_URL_HERE'}>
+          <Button type="submit" className="w-full" disabled={!canSubmit || isCloudFunctionUrlPlaceholder}>
             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
             {isLoading ? currentLoadingStep : (selectedFile ? 'Upload & Analyze Selected File' : 'Select a File to Upload & Analyze')}
           </Button>
