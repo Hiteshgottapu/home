@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar as CalendarIcon, Clock, User, Stethoscope, MessageCircle, CheckCircle, ChevronLeft, ChevronRight, Loader2, Gift, Sparkles, Briefcase } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, User, Stethoscope, MessageCircle, CheckCircle, ChevronLeft, ChevronRight, Loader2, Gift, Sparkles, Briefcase, Edit } from 'lucide-react';
 import { format, addDays, setHours, setMinutes, isPast, startOfDay, isToday as dateFnsIsToday, parseISO } from 'date-fns';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -268,12 +268,12 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
       <Dialog open={isOpen} onOpenChange={(open) => !open && handleCloseDialog()}>
         <DialogContent className="sm:max-w-md p-0">
           <div className="flex flex-col items-center justify-center p-8 md:p-12 text-center space-y-6 bg-gradient-to-br from-green-500/10 via-emerald-500/10 to-teal-500/10 rounded-lg">
-            <CheckCircle className="h-20 w-20 text-green-500 animate-pulse" />
-            <DialogTitle className="text-2xl font-bold text-foreground">Appointment Confirmed!</DialogTitle>
-            <DialogDescription className="text-muted-foreground">
+            <CheckCircle className="h-24 w-24 text-green-500 animate-pulse" />
+            <DialogTitle className="text-3xl font-bold text-foreground">Appointment Confirmed!</DialogTitle>
+            <DialogDescription className="text-base text-muted-foreground">
               Your appointment has been successfully booked. You will receive a confirmation email shortly.
             </DialogDescription>
-            <Button onClick={handleCloseDialog} className="w-full mt-4 bg-green-600 hover:bg-green-700 text-white py-3 text-base rounded-md shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105">Done</Button>
+            <Button onClick={handleCloseDialog} className="w-full mt-4 bg-green-600 hover:bg-green-700 text-white py-3.5 text-lg rounded-md shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105">Done</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -285,27 +285,27 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleCloseDialog()}>
       <DialogContent className="sm:max-w-xl md:max-w-2xl lg:max-w-3xl max-h-[90vh] flex flex-col p-0 overflow-hidden shadow-2xl border-border bg-card">
         <DialogHeader className="p-6 border-b border-border bg-card">
-          <DialogTitle className="text-2xl font-semibold text-foreground flex items-center gap-2">
+          <DialogTitle className="text-2xl font-semibold text-foreground flex items-center gap-2.5">
             <CalendarIcon className="h-7 w-7 text-primary"/>
             Book an Appointment
           </DialogTitle>
-          <DialogDescription>Follow the steps below to schedule your visit.</DialogDescription>
+          <DialogDescription className="text-muted-foreground">Follow the steps below to schedule your consultation.</DialogDescription>
         </DialogHeader>
 
         {isFirstAppointmentFree && currentStep === 1 && (
-          <div className="mx-6 mt-4 p-3 bg-gradient-to-r from-green-500 via-teal-500 to-blue-600 text-white rounded-lg shadow-lg flex items-center gap-3 animate-subtle-pulse">
-            <Gift size={24} className="flex-shrink-0" />
+          <div className="mx-6 mt-4 p-4 bg-gradient-to-r from-green-500 via-teal-500 to-blue-600 text-white rounded-lg shadow-lg flex items-center gap-3 animate-subtle-pulse">
+            <Gift size={28} className="flex-shrink-0" />
             <div>
-              <p className="font-bold text-base">Your First Consultation is on Us!</p>
-              <p className="text-xs opacity-90">Book today and experience proactive wellness, completely free.</p>
+              <p className="font-bold text-lg">Your First Consultation is Free!</p>
+              <p className="text-sm opacity-90">Book today and experience proactive wellness, on us.</p>
             </div>
-            <Sparkles size={20} className="ml-auto opacity-80"/>
+            <Sparkles size={24} className="ml-auto opacity-80"/>
           </div>
         )}
 
-        <div className="px-6 pt-2 pb-4">
-          <Progress value={progressValue} className="w-full h-2.5 rounded-full bg-muted [&>div]:bg-gradient-to-r [&>div]:from-primary [&>div]:to-accent [&>div]:transition-all [&>div]:duration-500" />
-          <p className="text-xs text-muted-foreground mt-1.5 text-right font-medium">Step {currentStep} of 3</p>
+        <div className="px-6 pt-3 pb-4">
+          <Progress value={progressValue} className="w-full h-3 rounded-full bg-muted [&>div]:bg-gradient-to-r [&>div]:from-primary [&>div]:to-accent [&>div]:transition-all [&>div]:duration-500" />
+          <p className="text-sm text-muted-foreground mt-1.5 text-right font-medium">Step {currentStep} of 3</p>
         </div>
 
         <form onSubmit={handleSubmit(onSubmitForm)} className="flex-grow overflow-y-auto px-6 pb-6 space-y-6">
@@ -406,7 +406,7 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                           trigger('appointmentDate'); 
                         }}
                         disabled={(date) => isPast(date) && !dateFnsIsToday(date)}
-                        className="rounded-md border-2 border-border shadow-inner bg-background/30"
+                        className="rounded-md border-2 border-border shadow-inner bg-background/30 p-4"
                         initialFocus
                       />
                     )}
@@ -419,7 +419,7 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                 <Card className="shadow-lg border border-border hover:shadow-xl hover:border-primary/40 transition-all duration-300 animate-fadeIn">
                   <CardHeader>
                     <CardTitle className="text-xl flex items-center gap-2"><Clock className="text-primary"/>Select Time Slot</CardTitle>
-                    <CardDescription>Choose an available time for your appointment on {format(selectedDate, 'MMMM d, yyyy')}.</CardDescription>
+                    <CardDescription>Choose an available time for {format(selectedDate, 'MMMM d, yyyy')}.</CardDescription>
                   </CardHeader>
                   <CardContent>
                     {availableTimeSlots.length > 0 ? (
@@ -440,7 +440,7 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                                   <RadioGroupItem value={slot} id={`time-${slot}`} className="peer sr-only" />
                                   <Label
                                     htmlFor={`time-${slot}`}
-                                    className="flex flex-col items-center text-base font-medium justify-between rounded-md border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/10 peer-data-[state=checked]:text-primary [&:has([data-state=checked])]:border-primary w-full cursor-pointer transition-all duration-200 ease-in-out transform hover:scale-105"
+                                    className="flex flex-col items-center text-base font-medium justify-between rounded-md border-2 border-muted bg-popover p-3.5 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/10 peer-data-[state=checked]:text-primary [&:has([data-state=checked])]:border-primary w-full cursor-pointer transition-all duration-200 ease-in-out transform hover:scale-105 active:scale-95"
                                   >
                                     {slot}
                                   </Label>
@@ -469,25 +469,27 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                 </CardHeader>
                 <CardContent className="space-y-4 text-base">
                   <div>
-                    <Label className="text-xs text-muted-foreground">Patient</Label>
-                    <p className="font-semibold text-foreground">{userProfile?.name || "Your Name"}</p>
+                    <Label className="text-sm text-muted-foreground">Patient</Label>
+                    <p className="font-semibold text-lg text-foreground">{userProfile?.name || "Your Name"}</p>
                   </div>
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <Label className="text-sm text-muted-foreground">Service</Label>
+                        <p className="font-semibold text-lg text-foreground">{mockServices.find(s => s.id === watch('serviceId'))?.name}</p>
+                    </div>
+                    <div>
+                        <Label className="text-sm text-muted-foreground">Doctor</Label>
+                        <p className="font-semibold text-lg text-foreground">{mockDoctors.find(d => d.id === watch('doctorId'))?.name}</p>
+                    </div>
+                   </div>
                   <div>
-                    <Label className="text-xs text-muted-foreground">Service</Label>
-                    <p className="font-semibold text-foreground">{mockServices.find(s => s.id === watch('serviceId'))?.name}</p>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Doctor</Label>
-                    <p className="font-semibold text-foreground">{mockDoctors.find(d => d.id === watch('doctorId'))?.name}</p>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Date & Time</Label>
-                    <p className="font-semibold text-foreground">
+                    <Label className="text-sm text-muted-foreground">Date & Time</Label>
+                    <p className="font-semibold text-lg text-foreground">
                       {watch('appointmentDate') ? format(watch('appointmentDate')!, 'EEEE, MMMM d, yyyy') : ''} at {watch('appointmentTime')}
                     </p>
                   </div>
                   <div>
-                    <Label htmlFor="notes" className="text-xs text-muted-foreground flex items-center gap-1"><MessageCircle size={14}/>Optional Notes for Doctor</Label>
+                    <Label htmlFor="notes" className="text-sm text-muted-foreground flex items-center gap-1.5"><Edit size={14}/>Optional Notes for Doctor</Label>
                     <Controller
                       name="notes"
                       control={control}
@@ -497,7 +499,7 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                           placeholder="e.g., Specific concerns, allergies, or if you need an interpreter (Optional)"
                           {...field}
                           rows={3}
-                          className="mt-1 bg-background/50 rounded-md focus:ring-2 focus:ring-primary/80"
+                          className="mt-1 bg-background/50 rounded-md focus:ring-2 focus:ring-primary/80 text-base"
                         />
                       )}
                     />
@@ -515,9 +517,9 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                 type="button"
                 onClick={handlePreviousStep}
                 disabled={currentStep === 1 || isLoading}
-                className="py-3 px-5 text-base rounded-md shadow-sm hover:shadow-md transition-all duration-300 transform hover:scale-105 hover:bg-muted/70"
+                className="py-3.5 px-6 text-base rounded-md shadow-sm hover:shadow-md transition-all duration-300 transform hover:scale-105 hover:bg-muted/70 active:scale-95"
               >
-                <ChevronLeft className="mr-1.5 h-5 w-5" /> Previous
+                <ChevronLeft className="mr-2 h-5 w-5" /> Previous
               </Button>
 
               {currentStep < 3 ? (
@@ -525,15 +527,15 @@ export function AppointmentBookingModal({ isOpen, onClose, isFirstAppointmentFre
                   type="button"
                   onClick={handleNextStep}
                   disabled={isLoading || !isValid } 
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground py-3 px-5 text-base rounded-md shadow-md hover:shadow-lifted transition-all duration-300 transform hover:scale-105"
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground py-3.5 px-6 text-base rounded-md shadow-md hover:shadow-lifted transition-all duration-300 transform hover:scale-105 active:scale-95"
                 >
-                  Next <ChevronRight className="ml-1.5 h-5 w-5" />
+                  Next <ChevronRight className="ml-2 h-5 w-5" />
                 </Button>
               ) : (
                 <Button
                   type="submit"
                   disabled={isLoading || !isValid}
-                  className="bg-green-600 hover:bg-green-700 text-white py-3 px-5 text-base rounded-md shadow-lg hover:shadow-lifted-lg transition-all duration-300 transform hover:scale-105"
+                  className="bg-green-600 hover:bg-green-700 text-white py-3.5 px-6 text-base rounded-md shadow-lg hover:shadow-lifted-lg transition-all duration-300 transform hover:scale-105 active:scale-95"
                 >
                   {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CheckCircle className="mr-2 h-5 w-5" />}
                   Confirm Appointment

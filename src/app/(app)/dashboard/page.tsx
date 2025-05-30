@@ -213,137 +213,137 @@ export default function DashboardPage() {
   return (
     <div className="container mx-auto py-2 px-0 md:px-4">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-foreground">
+        <h1 className="text-4xl font-bold text-foreground">
           Hello, {userProfile.name} 👋
         </h1>
-        <p className="text-muted-foreground">Let's take charge of your well-being today.</p>
+        <p className="text-lg text-muted-foreground">Let's take charge of your well-being today.</p>
       </div>
 
       <div className="mb-6">
-        <Card className="bg-gradient-to-br from-primary/10 to-accent/10 border-primary/20 shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-[1.02] active:scale-[1.01]">
-          <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
+        <Card className="bg-gradient-to-br from-primary/10 to-accent/10 border-primary/20 shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-[1.02] active:scale-[1.01] animate-subtle-pulse">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <div className="space-y-1">
-              <CardTitle className="text-lg font-semibold text-primary">Today's Focus</CardTitle>
-              <CardDescription className="text-sm">Stay hydrated for better energy!</CardDescription>
+              <CardTitle className="text-lg font-semibold text-primary flex items-center gap-2">
+                 <Lightbulb className="h-6 w-6 text-primary animate-pulse" />
+                Today's Focus
+              </CardTitle>
+              <CardDescription className="text-sm text-muted-foreground">Stay hydrated for better energy!</CardDescription>
             </div>
-            <Lightbulb className="h-6 w-6 text-primary" />
+             <Zap className="h-5 w-5 text-primary/70"/>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-foreground">Aim for 8 glasses of water. Small sips throughout the day make a big difference.</p>
+            <p className="text-base text-foreground">Aim for 8 glasses of water. Small sips throughout the day make a big difference.</p>
           </CardContent>
-          <CardFooter>
-            <Button variant="ghost" size="sm" className="text-xs text-primary hover:bg-primary/10 active:bg-primary/15">Dismiss</Button>
-          </CardFooter>
         </Card>
       </div>
 
       <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <Card
-          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 cursor-pointer"
+          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 cursor-pointer group"
           onClick={() => setIsTaskMenuOpen(true)}
           role="button"
           tabIndex={0}
           aria-label="Open active health goals task menu"
         >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Health Goals</CardTitle>
-            <ListChecks className="h-5 w-5 text-accent" />
+            <CardTitle className="text-sm font-medium text-foreground group-hover:text-accent transition-colors">Active Health Goals</CardTitle>
+            <ListChecks className="h-5 w-5 text-accent transition-transform group-hover:rotate-6" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-accent">{activeGoalsCount}</div>
-            <p className="text-xs text-muted-foreground">Keep up the great work!</p>
+            <div className="text-3xl font-bold text-accent">{activeGoalsCount}</div>
+            <p className="text-xs text-muted-foreground">{activeGoalsCount > 0 ? 'Making progress!' : 'Set a new goal!'}</p>
           </CardContent>
         </Card>
 
         <Card
-          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 cursor-pointer"
+          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 cursor-pointer group"
           onClick={() => setIsPrescriptionsModalOpen(true)}
           role="button"
           tabIndex={0}
           aria-label="View managed prescriptions"
         >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Managed Prescriptions</CardTitle>
-            <FilePlus className="h-5 w-5 text-primary" />
+            <CardTitle className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">Managed Prescriptions</CardTitle>
+            <FilePlus className="h-5 w-5 text-primary transition-transform group-hover:rotate-6" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">{prescriptionsCount}</div>
-            <p className="text-xs text-muted-foreground">{prescriptionsCount > 0 ? `View details` : `Awaiting first upload.`}</p>
+            <div className="text-3xl font-bold text-primary">{prescriptionsCount}</div>
+            <p className="text-xs text-muted-foreground">{prescriptionsCount > 0 ? `View details & insights` : `Upload your first script`}</p>
           </CardContent>
         </Card>
 
         <Card
-          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 cursor-pointer"
+          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 cursor-pointer group"
           onClick={() => setIsInteractionLogModalOpen(true)}
           role="button"
           tabIndex={0}
           aria-label="View interaction log"
         >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Interaction Log</CardTitle>
-            <MessageSquareWarning className="h-5 w-5 text-destructive" />
+            <CardTitle className="text-sm font-medium text-foreground group-hover:text-destructive transition-colors">Interaction Log</CardTitle>
+            <MessageSquareWarning className="h-5 w-5 text-destructive transition-transform group-hover:rotate-6" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-destructive">{interactionLogsCount}</div>
-            <p className="text-xs text-muted-foreground">View AI chats & doctor notes.</p>
+            <div className="text-3xl font-bold text-destructive">{interactionLogsCount}</div>
+            <p className="text-xs text-muted-foreground">AI chats & doctor notes.</p>
           </CardContent>
         </Card>
 
         <Card
-          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 cursor-pointer"
+          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 cursor-pointer group"
           onClick={() => setIsAppointmentsViewModalOpen(true)}
           role="button"
           tabIndex={0}
           aria-label="Book or view upcoming appointments"
         >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Upcoming Appointments</CardTitle>
-            <CalendarCheck className="h-5 w-5 text-primary" />
+            <CardTitle className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">Upcoming Appointments</CardTitle>
+            <CalendarCheck className="h-5 w-5 text-primary transition-transform group-hover:rotate-6" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">{currentUpcomingAppointmentsCount}</div>
-            <p className="text-xs text-muted-foreground">{currentUpcomingAppointmentsCount > 0 ? `View appointments` : `Book an appointment`}</p>
+            <div className="text-3xl font-bold text-primary">{currentUpcomingAppointmentsCount}</div>
+            <p className="text-xs text-muted-foreground">{currentUpcomingAppointmentsCount > 0 ? `Ready for your next visit` : `Schedule an appointment`}</p>
           </CardContent>
         </Card>
       </div>
 
       <section className="mt-8">
-        <h2 className="text-xl font-semibold mb-4 text-foreground">Quick Actions</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <h2 className="text-2xl font-semibold mb-4 text-foreground">Quick Actions</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           <Link href="/insights#upload" passHref>
-            <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-lg hover:border-primary/40 hover:-translate-y-0.5 active:scale-95 transition-all duration-300">
-              <FilePlus className="h-6 w-6 text-primary" />
-              Upload Prescription
+            <Button variant="outline" className="w-full h-24 flex flex-col items-center justify-center gap-2 text-sm shadow-sm hover:shadow-lg hover:border-primary/40 hover:-translate-y-1 active:scale-95 transition-all duration-300 group">
+              <FilePlus className="h-8 w-8 text-primary transition-transform group-hover:scale-110" />
+              <span className="font-medium">Upload Prescription</span>
             </Button>
           </Link>
           <Link href="/ai-assistant" passHref>
-            <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-lg hover:border-primary/40 hover:-translate-y-0.5 active:scale-95 transition-all duration-300">
-              <Activity className="h-6 w-6 text-accent" />
-              Analyze Symptoms
+            <Button variant="outline" className="w-full h-24 flex flex-col items-center justify-center gap-2 text-sm shadow-sm hover:shadow-lg hover:border-accent/40 hover:-translate-y-1 active:scale-95 transition-all duration-300 group">
+              <Activity className="h-8 w-8 text-accent transition-transform group-hover:scale-110" />
+              <span className="font-medium">Analyze Symptoms</span>
             </Button>
           </Link>
            <Link href="/profile#goals" passHref>
-            <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-lg hover:border-primary/40 hover:-translate-y-0.5 active:scale-95 transition-all duration-300">
-              <ListChecks className="h-6 w-6 text-primary" />
-              View Health Goals
+            <Button variant="outline" className="w-full h-24 flex flex-col items-center justify-center gap-2 text-sm shadow-sm hover:shadow-lg hover:border-primary/40 hover:-translate-y-1 active:scale-95 transition-all duration-300 group">
+              <ListChecks className="h-8 w-8 text-primary transition-transform group-hover:scale-110" />
+              <span className="font-medium">View Health Goals</span>
             </Button>
           </Link>
           <Link href="/profile#privacy" passHref>
-           <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-lg hover:border-primary/40 hover:-translate-y-0.5 active:scale-95 transition-all duration-300">
-              <ShieldCheck className="h-6 w-6 text-muted-foreground" />
-              Data & Privacy
+           <Button variant="outline" className="w-full h-24 flex flex-col items-center justify-center gap-2 text-sm shadow-sm hover:shadow-lg hover:border-muted-foreground/30 hover:-translate-y-1 active:scale-95 transition-all duration-300 group">
+              <ShieldCheck className="h-8 w-8 text-muted-foreground transition-transform group-hover:scale-110" />
+              <span className="font-medium">Data & Privacy</span>
             </Button>
           </Link>
         </div>
       </section>
 
       <section className="mt-8">
-        <h2 className="text-xl font-semibold mb-4 text-foreground">Your Progress Overview</h2>
+        <h2 className="text-2xl font-semibold mb-4 text-foreground">Your Progress Overview</h2>
         <div className="grid md:grid-cols-2 gap-6">
           <Card className="shadow-md hover:shadow-lg transition-shadow duration-300">
             <CardHeader>
               <CardTitle>Monthly Activity</CardTitle>
-              <CardDescription>Overview of tasks and goals.</CardDescription>
+              <CardDescription>Overview of tasks completed and goals achieved.</CardDescription>
             </CardHeader>
             <CardContent className="h-[300px] w-full">
                <ChartContainer config={chartConfig} className="w-full h-full">
@@ -362,7 +362,7 @@ export default function DashboardPage() {
           <Card className="shadow-md hover:shadow-lg transition-shadow duration-300">
             <CardHeader>
               <CardTitle>Health Goals Status</CardTitle>
-               <CardDescription>Current breakdown of your goals.</CardDescription>
+               <CardDescription>Current breakdown of your health goals.</CardDescription>
             </CardHeader>
             <CardContent  className="h-[300px] w-full flex items-center justify-center">
               <ChartContainer config={chartConfig} className="w-full h-full aspect-square">
@@ -383,20 +383,20 @@ export default function DashboardPage() {
 
       {(healthGoals || []).length === 0 && managedPrescriptions.length === 0 && upcomingAppointments.length === 0 && !dataLoading && !authIsLoading && (
          <section className="mt-12 text-center">
-            <Card className="max-w-lg mx-auto p-8 bg-card shadow-lg">
-                <BarChartHorizontalBig data-ai-hint="health chart" className="h-16 w-16 text-primary mx-auto mb-4" />
-                <h2 className="text-2xl font-semibold mb-2 text-foreground">Welcome to VitaLog Pro!</h2>
-                <p className="text-muted-foreground mb-6">
-                    Your personal health dashboard is ready. Upload your first prescription, set a health goal, or book an appointment to see personalized insights and start your journey to proactive wellness.
+            <Card className="max-w-2xl mx-auto p-8 sm:p-12 bg-card shadow-lifted-lg border border-primary/10">
+                <BarChartHorizontalBig data-ai-hint="health chart statistics" className="h-20 w-20 text-primary mx-auto mb-6 animate-bounce" />
+                <h2 className="text-3xl font-semibold mb-3 text-foreground">Welcome to VitaLog Pro!</h2>
+                <p className="text-lg text-muted-foreground mb-8">
+                    Your personal health dashboard is ready. Upload your first prescription, set a health goal, or book an appointment to unlock personalized insights and embark on your journey to proactive wellness.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                    <Button asChild size="lg" className="transition-all duration-300 active:scale-95">
+                    <Button asChild size="lg" className="transition-all duration-300 active:scale-95 text-base py-3 px-6 bg-primary hover:bg-primary/90 shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
                         <Link href="/insights#upload">Upload Prescription</Link>
                     </Button>
-                     <Button variant="outline" size="lg" onClick={() => setIsAppointmentsViewModalOpen(true)} className="transition-all duration-300 active:scale-95">
+                     <Button variant="outline" size="lg" onClick={() => setIsAppointmentsViewModalOpen(true)} className="transition-all duration-300 active:scale-95 text-base py-3 px-6 hover:bg-accent/20 hover:border-accent shadow-sm hover:shadow-md transform hover:-translate-y-0.5">
                         Book Appointment
                     </Button>
-                     <Button variant="outline" size="lg" onClick={() => setIsTaskMenuOpen(true)} className="transition-all duration-300 active:scale-95">
+                     <Button variant="outline" size="lg" onClick={() => setIsTaskMenuOpen(true)} className="transition-all duration-300 active:scale-95 text-base py-3 px-6 hover:bg-accent/20 hover:border-accent shadow-sm hover:shadow-md transform hover:-translate-y-0.5">
                         Set a Health Goal
                     </Button>
                 </div>

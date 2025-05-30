@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle as ShadCardTitle, CardFooter } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CalendarCheck, BriefcaseMedical, User, Clock, Video, PlusCircle, ArrowRight } from 'lucide-react';
+import { CalendarCheck, BriefcaseMedical, User, Clock, Video, PlusCircle, ArrowRight, MapPin, FileText } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 
 interface UpcomingAppointmentsViewModalProps {
@@ -37,7 +37,7 @@ export function UpcomingAppointmentsViewModal({ isOpen, onClose, appointments, o
             Your Upcoming Appointments
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Review your scheduled appointments or book a new one.
+            Review your scheduled consultations or book a new one.
           </DialogDescription>
         </DialogHeader>
 
@@ -57,21 +57,31 @@ export function UpcomingAppointmentsViewModal({ isOpen, onClose, appointments, o
                       <User size={16} /> With: {appt.doctorName}
                     </p>
                   </CardHeader>
-                  <CardContent className="p-4 space-y-2">
-                    <div className="flex items-center text-sm text-foreground">
-                      <Clock size={16} className="mr-2 text-accent flex-shrink-0" />
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-start text-sm text-foreground">
+                      <Clock size={18} className="mr-2.5 text-accent flex-shrink-0 mt-0.5" />
                       <div className="flex flex-col">
-                        <span>{format(parseISO(appt.dateTime), 'eeee, MMMM d, yyyy')}</span>
-                        <span className="font-semibold">{format(parseISO(appt.dateTime), 'h:mm a')} ({appt.durationMinutes} min)</span>
+                        <span className="font-medium">{format(parseISO(appt.dateTime), 'EEEE, MMMM d, yyyy')}</span>
+                        <span className="text-lg font-semibold">{format(parseISO(appt.dateTime), 'h:mm a')} ({appt.durationMinutes} min)</span>
                       </div>
                     </div>
+                     {appt.notes && (
+                        <div className="flex items-start text-sm text-muted-foreground">
+                            <FileText size={16} className="mr-2.5 text-muted-foreground/80 flex-shrink-0 mt-0.5" />
+                            <p className="italic">Your note: "{appt.notes}"</p>
+                        </div>
+                    )}
+                    <div className="flex items-center text-sm text-muted-foreground">
+                      <MapPin size={16} className="mr-2.5 text-muted-foreground/80 flex-shrink-0" />
+                       <span>Virtual Consultation</span>
+                    </div>
                   </CardContent>
-                  <CardFooter className="p-4 pt-2 bg-muted/20 border-t border-border group-hover:bg-muted/40 transition-colors duration-300">
+                  <CardFooter className="p-4 pt-3 bg-muted/20 border-t border-border group-hover:bg-muted/40 transition-colors duration-300">
                     <Button 
                       onClick={() => handleJoinMeeting(appt.meetingLink)} 
-                      className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-300 ease-in-out py-3 text-base"
+                      className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-300 ease-in-out py-3.5 text-base"
                     >
-                      <Video size={18} className="mr-2" /> Join Meeting
+                      <Video size={20} className="mr-2.5" /> Join Meeting
                     </Button>
                   </CardFooter>
                 </Card>
@@ -81,7 +91,7 @@ export function UpcomingAppointmentsViewModal({ isOpen, onClose, appointments, o
             <div className="text-center py-16 text-muted-foreground flex flex-col items-center justify-center h-full">
               <CalendarCheck size={64} className="mx-auto mb-6 opacity-40" data-ai-hint="calendar icon" />
               <p className="text-xl font-medium text-foreground mb-2">No Upcoming Appointments</p>
-              <p className="text-sm mb-6">It looks like your schedule is clear. Time to book your next check-up?</p>
+              <p className="text-base mb-6">It looks like your schedule is clear. Time to book your next check-up?</p>
             </div>
           )}
         </ScrollArea>
@@ -92,9 +102,9 @@ export function UpcomingAppointmentsViewModal({ isOpen, onClose, appointments, o
                 size="lg" 
                 className="w-full bg-gradient-to-r from-primary via-primary/90 to-accent text-primary-foreground shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300 ease-in-out py-3.5 text-lg group"
             >
-                <PlusCircle size={22} className="mr-2.5 transition-transform duration-300 group-hover:rotate-90" />
+                <PlusCircle size={24} className="mr-2.5 transition-transform duration-300 group-hover:rotate-90" />
                 Book New Appointment
-                <ArrowRight size={20} className="ml-auto opacity-0 transition-all duration-300 group-hover:opacity-100 group-hover:translate-x-1" />
+                <ArrowRight size={22} className="ml-auto opacity-0 transition-all duration-300 group-hover:opacity-100 group-hover:translate-x-1.5" />
             </Button>
         </DialogFooter>
       </DialogContent>
