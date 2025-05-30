@@ -8,6 +8,8 @@ export default {
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/features/scriptRecognition/**/*.{ts,tsx}",
+    "./src/features/healthAssistant/**/*.{ts,tsx}",
+    "./src/features/aiAssistant/**/*.{ts,tsx}",
   ],
   theme: {
   	extend: {
