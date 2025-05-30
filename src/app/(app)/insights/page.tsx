@@ -11,7 +11,7 @@ import { PlusCircle, ListFilter, FileSearch, LayoutGrid, List, Loader2 } from 'l
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Image from 'next/image';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardFooter } from '@/components/ui/card'; // Added CardHeader and CardFooter
 import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/lib/firebase';
 import { collection, query, orderBy, onSnapshot, Unsubscribe, doc, updateDoc } from 'firebase/firestore';
@@ -94,7 +94,7 @@ export default function InsightsHubPage() {
 
   const filteredPrescriptions = prescriptions
     .filter(p => p.fileName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                 p.extractedMedications?.some(med => med.name.toLowerCase().includes(searchTerm.toLowerCase())))
+                 (p.extractedMedications || []).some(med => med.name.toLowerCase().includes(searchTerm.toLowerCase())))
     .filter(p => filterStatus === 'all' || p.status === filterStatus);
 
 
@@ -183,10 +183,10 @@ export default function InsightsHubPage() {
                 <SelectItem value="error">Error</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant={viewMode === 'list' ? "default" : "outline"} size="icon" onClick={() => setViewMode('list')} aria-label="List view" className="transition-all duration-200 active:scale-90">
+            <Button variant={viewMode === 'list' ? "default" : "outline"} size="icon" onClick={() => setViewMode('list')} aria-label="List view" className="transition-all duration-200 active:scale-95">
               <List className="h-4 w-4"/>
             </Button>
-            <Button variant={viewMode === 'grid' ? "default" : "outline"} size="icon" onClick={() => setViewMode('grid')} aria-label="Grid view" className="transition-all duration-200 active:scale-90">
+            <Button variant={viewMode === 'grid' ? "default" : "outline"} size="icon" onClick={() => setViewMode('grid')} aria-label="Grid view" className="transition-all duration-200 active:scale-95">
               <LayoutGrid className="h-4 w-4"/>
             </Button>
           </div>
@@ -217,7 +217,12 @@ export default function InsightsHubPage() {
                 : "Try adjusting your search or filter criteria, or clear them to see all prescriptions."}
             </p>
             {prescriptions.length === 0 && !searchTerm && filterStatus === 'all' &&
-                <Button onClick={() => document.getElementById('upload')?.scrollIntoView({ behavior: 'smooth' })} className="transition-all duration-300 active:scale-95">
+                <Button onClick={() => {
+                  const uploadSection = document.getElementById('upload');
+                  if (uploadSection) {
+                    uploadSection.scrollIntoView({ behavior: 'smooth' });
+                  }
+                }} className="transition-all duration-300 active:scale-95">
                     <PlusCircle className="mr-2 h-4 w-4" /> Upload Now
                 </Button>
             }
@@ -245,3 +250,4 @@ export default function InsightsHubPage() {
     </div>
   );
 }
+
