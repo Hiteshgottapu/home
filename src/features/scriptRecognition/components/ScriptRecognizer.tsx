@@ -9,17 +9,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Loader2, UploadCloud, AlertTriangle, CheckCircle, Camera, FilePenLine, Aperture, XCircle, RefreshCw, BookOpen, ListChecks, ShieldAlert, InfoIcon as Info } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { ExtractScriptDetailsOutput, MedicationDetail as ExtractedMedicationDetail } from '../ai/flows/extract-script-details-flow';
-import type { MedicineInfo, MedicationDetail } from '@/types'; // Use the global MedicationDetail type
+import type { MedicineInfo, MedicationDetail } from '@/types';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 type ViewState = 'select_input' | 'camera_active' | 'image_preview' | 'show_results';
 
-// Combine ExtractedMedicationDetail with our global MedicationDetail type if needed,
-// but for this component, analysisDetails will use the structure from ExtractScriptDetailsOutput
-// and then we'll map its medications to our global MedicationDetail for enhanced info.
-interface ScriptAnalysisData extends Omit<ExtractScriptDetailsOutput, 'medications'> {
-  medications?: MedicationDetail[]; // Use our enhanced MedicationDetail type here
+interface ScriptAnalysisData extends Omit<ExtractScriptDetailsOutput, 'medications' | 'unclearSections'> {
+  medications?: MedicationDetail[]; 
 }
 
 export function ScriptRecognizer() {
@@ -40,9 +37,11 @@ export function ScriptRecognizer() {
   const { toast } = useToast();
 
   useEffect(() => {
+    // Cleanup for blob URLs
+    const currentPreview = previewSrc;
     return () => {
-      if (previewSrc && previewSrc.startsWith('blob:')) {
-        URL.revokeObjectURL(previewSrc);
+      if (currentPreview && currentPreview.startsWith('blob:')) {
+        URL.revokeObjectURL(currentPreview);
       }
     };
   }, [previewSrc]);
@@ -54,7 +53,7 @@ export function ScriptRecognizer() {
         title: 'Camera Error',
         description: cameraError,
       });
-      setCameraError(null);
+      setCameraError(null); // Reset after showing toast
     }
   }, [cameraError, toast]);
 
@@ -77,18 +76,28 @@ export function ScriptRecognizer() {
         } else {
             setCameraError('Could not access the camera. Please ensure it is not in use by another application.');
         }
-        setCurrentView('select_input');
+        setCurrentView('select_input'); // Revert to selection if camera fails critically
       }
     };
     const stopCamera = () => {
-      if (stream) stream.getTracks().forEach(track => track.stop());
-      if (videoRef.current && videoRef.current.srcObject) videoRef.current.srcObject = null;
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      if (videoRef.current && videoRef.current.srcObject) {
+        videoRef.current.srcObject = null;
+      }
     };
 
-    if (currentView === 'camera_active') startCamera();
-    else stopCamera();
-    return () => stopCamera();
+    if (currentView === 'camera_active') {
+      startCamera();
+    } else {
+      stopCamera();
+    }
+    return () => { // Cleanup function
+      stopCamera();
+    };
   }, [currentView]);
+
 
   const fetchAndSetDetailedMedicineInfo = useCallback(async (medications: ExtractedMedicationDetail[]) => {
     const fetchPromises = medications.map(async (med) => {
@@ -105,28 +114,18 @@ export function ScriptRecognizer() {
           throw new Error(errorData.error || `HTTP error ${res.status}`);
         }
         const info: MedicineInfo = await res.json();
-        return { ...med, info, isLoadingInfo: false, infoError: undefined };
+        return { ...med, info, isLoadingInfo: false, infoError: undefined } as MedicationDetail;
       } catch (err: any) {
         console.error(`Error fetching details for ${med.name}:`, err);
-        return { ...med, info: undefined, isLoadingInfo: false, infoError: err.message || 'Could not load details.' };
+        return { ...med, info: undefined, isLoadingInfo: false, infoError: err.message || 'Could not load details.' } as MedicationDetail;
       }
     });
-
-    const settledResults = await Promise.allSettled(fetchPromises);
+    
+    const detailedMedications = await Promise.all(fetchPromises);
 
     setAnalysisDetails(prevDetails => {
       if (!prevDetails) return null;
-      const updatedMedications = settledResults.map((result, index) => {
-        if (result.status === 'fulfilled') {
-          return result.value as MedicationDetail;
-        }
-        // if promise rejected, original medication (with isLoadingInfo set to false and potentially an error)
-        // should already be handled by the catch block within the map.
-        // Fallback to original if something unexpected happened.
-        return prevDetails.medications?.[index] ? { ...prevDetails.medications[index], isLoadingInfo: false, infoError: 'Failed to process medication details.' } : ({} as MedicationDetail);
-
-      });
-      return { ...prevDetails, medications: updatedMedications };
+      return { ...prevDetails, medications: detailedMedications };
     });
 
   }, []);
@@ -134,10 +133,10 @@ export function ScriptRecognizer() {
 
   const handleFileSelect = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (fileInputRef.current) fileInputRef.current.value = ''; // Reset file input
 
     if (file) {
-      if (file.size > 10 * 1024 * 1024) {
+      if (file.size > 10 * 1024 * 1024) { // 10MB limit
         toast({ title: "File Too Large", description: "Please select an image under 10MB.", variant: "destructive" });
         return;
       }
@@ -161,10 +160,11 @@ export function ScriptRecognizer() {
 
   const handleOpenCamera = () => {
     setCurrentView('camera_active');
-    setHasCameraPermission(null);
+    setHasCameraPermission(null); // Reset to re-check or re-prompt
     setAnalysisDetails(null);
     setAnalysisError(null);
     setImageDataUri(null);
+    if (previewSrc && previewSrc.startsWith('blob:')) URL.revokeObjectURL(previewSrc);
     setPreviewSrc(null);
   };
 
@@ -177,14 +177,14 @@ export function ScriptRecognizer() {
       const context = canvas.getContext('2d');
       if (context) {
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9); // Use JPEG for smaller size
         setImageDataUri(dataUrl);
         if (previewSrc && previewSrc.startsWith('blob:')) URL.revokeObjectURL(previewSrc);
-        setPreviewSrc(dataUrl);
+        setPreviewSrc(dataUrl); // Use dataUrl directly for preview for captured images
         setCurrentView('image_preview');
       } else {
         setCameraError("Could not get canvas context to capture photo.");
-        setCurrentView('select_input');
+        setCurrentView('select_input'); // Revert
       }
     }
   };
@@ -213,19 +213,21 @@ export function ScriptRecognizer() {
       const data: ExtractScriptDetailsOutput = await res.json();
       
       // Prepare medications with isLoadingInfo state
-      const medicationsWithLoadingState = data.medications?.map(med => ({
+      const medicationsWithLoadingState: MedicationDetail[] = data.medications?.map(med => ({
         ...med,
-        isLoadingInfo: !!med.name, // Only set true if there's a name to fetch info for
+        isLoadingInfo: !!med.name, 
         info: undefined,
         infoError: undefined,
       })) || [];
 
-      setAnalysisDetails({ ...data, medications: medicationsWithLoadingState });
+      const { unclearSections, ...relevantDetails } = data; // Exclude unclearSections
+
+      setAnalysisDetails({ ...relevantDetails, medications: medicationsWithLoadingState });
       setCurrentView('show_results');
       toast({ title: "Analysis Complete", description: "Script details extracted. Fetching detailed medicine info..." });
 
       if (medicationsWithLoadingState.length > 0) {
-        fetchAndSetDetailedMedicineInfo(medicationsWithLoadingState);
+        fetchAndSetDetailedMedicineInfo(medicationsWithLoadingState as ExtractedMedicationDetail[]);
       }
 
     } catch (err: any) {
@@ -245,11 +247,12 @@ export function ScriptRecognizer() {
     setAnalysisDetails(null);
     setAnalysisError(null);
     setIsLoadingAnalysis(false);
+    setHasCameraPermission(null); // Reset camera permission state
   };
 
   return (
-    <Card className="w-full max-w-2xl mx-auto shadow-xl">
-      <CardHeader className="text-center">
+    <Card className="w-full max-w-2xl mx-auto shadow-xl border border-border">
+      <CardHeader className="text-center border-b border-border">
         <div className="flex items-center justify-center gap-2 mb-2">
           <FilePenLine className="h-8 w-8 text-primary" />
           <CardTitle className="text-3xl font-bold text-primary">ScriptAssist</CardTitle>
@@ -261,10 +264,10 @@ export function ScriptRecognizer() {
       <CardContent className="space-y-6 p-6">
         {currentView === 'select_input' && (
           <div className="space-y-4">
-            <Button onClick={handleOpenCamera} className="w-full text-base py-6 bg-green-600 hover:bg-green-700 text-white shadow-md">
+            <Button onClick={handleOpenCamera} className="w-full text-base py-6 bg-green-600 hover:bg-green-700 text-white shadow-md transition-all duration-200 active:scale-95">
               <Camera className="mr-2 h-5 w-5" /> Capture with Camera
             </Button>
-            <Button onClick={() => fileInputRef.current?.click()} className="w-full text-base py-6 bg-blue-600 hover:bg-blue-700 text-white shadow-md">
+            <Button onClick={() => fileInputRef.current?.click()} className="w-full text-base py-6 bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-all duration-200 active:scale-95">
               <UploadCloud className="mr-2 h-5 w-5" /> Upload from Gallery
             </Button>
             <Input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileSelect} ref={fileInputRef} className="hidden" />
@@ -277,12 +280,12 @@ export function ScriptRecognizer() {
               <Alert variant="destructive" className="w-full">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>Camera Access Denied</AlertTitle>
-                <AlertDescription>{cameraError || "Please enable camera permissions in your browser settings."}</AlertDescription>
+                <AlertDescription>{cameraError || "Please enable camera permissions in your browser settings and try again."}</AlertDescription>
               </Alert>
             )}
-            {hasCameraPermission === null && (
+            {hasCameraPermission === null && !cameraError && ( // Show loader only if no specific error yet
               <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-                <Loader2 className="h-12 w-12 animate-spin mb-4" />
+                <Loader2 className="h-12 w-12 animate-spin mb-4 text-primary" />
                 <p>Requesting camera access...</p>
               </div>
             )}
@@ -290,11 +293,11 @@ export function ScriptRecognizer() {
               <>
                 <video ref={videoRef} className="w-full aspect-video rounded-md bg-black shadow-inner" autoPlay playsInline muted />
                 <canvas ref={canvasRef} className="hidden"></canvas>
-                <div className="flex gap-4 w-full">
-                  <Button onClick={() => setCurrentView('select_input')} variant="outline" className="flex-1 text-base py-3">
+                <div className="flex gap-4 w-full pt-2">
+                  <Button onClick={() => setCurrentView('select_input')} variant="outline" className="flex-1 text-base py-3 transition-all duration-200 active:scale-95">
                     <XCircle className="mr-2 h-5 w-5" /> Cancel Camera
                   </Button>
-                  <Button onClick={handleSnapPhoto} className="flex-1 text-base py-3 bg-red-600 hover:bg-red-700 text-white">
+                  <Button onClick={handleSnapPhoto} className="flex-1 text-base py-3 bg-red-600 hover:bg-red-700 text-white transition-all duration-200 active:scale-95">
                     <Aperture className="mr-2 h-5 w-5" /> Snap Photo
                   </Button>
                 </div>
@@ -306,20 +309,20 @@ export function ScriptRecognizer() {
         {currentView === 'image_preview' && previewSrc && (
           <div className="space-y-4 flex flex-col items-center">
             <div className="p-2 border rounded-lg shadow-inner bg-muted/20 w-full">
-              <Image src={previewSrc} alt="Script preview" width={600} height={400} className="rounded-md object-contain mx-auto max-h-[400px] w-auto" data-ai-hint="prescription preview" />
+              <Image src={previewSrc} alt="Script preview" width={600} height={400} className="rounded-md object-contain mx-auto max-h-[400px] w-auto" data-ai-hint="prescription document image" />
             </div>
             {analysisError && (
               <Alert variant="destructive" className="w-full">
                 <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>Analysis Error</AlertTitle>
+                <AlertTitle>Previous Analysis Error</AlertTitle>
                 <AlertDescription>{analysisError}</AlertDescription>
               </Alert>
             )}
-            <div className="flex gap-4 w-full">
-              <Button onClick={resetToStart} variant="outline" className="flex-1 text-base py-3" disabled={isLoadingAnalysis}>
+            <div className="flex gap-4 w-full pt-2">
+              <Button onClick={resetToStart} variant="outline" className="flex-1 text-base py-3 transition-all duration-200 active:scale-95" disabled={isLoadingAnalysis}>
                 <RefreshCw className="mr-2 h-5 w-5" /> Change Photo / Retake
               </Button>
-              <Button onClick={handleAnalyze} disabled={isLoadingAnalysis || !imageDataUri} className="flex-1 text-base py-3 bg-primary text-primary-foreground">
+              <Button onClick={handleAnalyze} disabled={isLoadingAnalysis || !imageDataUri} className="flex-1 text-base py-3 bg-primary text-primary-foreground transition-all duration-200 active:scale-95">
                 {isLoadingAnalysis ? <Loader2 className="animate-spin mr-2 h-5 w-5" /> : <CheckCircle className="mr-2 h-5 w-5" />}
                 {isLoadingAnalysis ? 'Analyzing...' : 'Analyze Prescription'}
               </Button>
@@ -330,21 +333,21 @@ export function ScriptRecognizer() {
         {currentView === 'show_results' && analysisDetails && (
           <div className="space-y-6 animate-fadeIn">
             <Card className="border-primary/30 shadow-md">
-              <CardHeader className="pb-3">
+              <CardHeader className="pb-3 bg-muted/30 border-b">
                 <CardTitle className="text-xl text-primary">Extraction Results</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="p-4 space-y-3">
                 {analysisDetails.patientName && <p><strong className="font-medium text-foreground">Patient:</strong> {analysisDetails.patientName}</p>}
                 {analysisDetails.doctorName && <p><strong className="font-medium text-foreground">Doctor:</strong> {analysisDetails.doctorName}</p>}
                 {analysisDetails.prescriptionDate && <p><strong className="font-medium text-foreground">Date:</strong> {analysisDetails.prescriptionDate}</p>}
 
-                {analysisDetails.medications && analysisDetails.medications.length > 0 && (
+                {analysisDetails.medications && analysisDetails.medications.length > 0 ? (
                   <div>
                     <h4 className="text-md font-semibold mt-3 mb-1.5 text-foreground">Medications:</h4>
                     <Accordion type="multiple" className="w-full space-y-2">
                       {analysisDetails.medications.map((med, index) => (
-                        <AccordionItem value={`med-${index}`} key={index} className="border rounded-md bg-background/50 shadow-sm">
-                          <AccordionTrigger className="px-4 py-2.5 text-sm font-medium hover:no-underline">
+                        <AccordionItem value={`med-${index}`} key={index} className="border rounded-md bg-background/50 shadow-sm hover:shadow-md transition-shadow">
+                          <AccordionTrigger className="px-4 py-2.5 text-sm font-medium hover:no-underline hover:bg-muted/30 rounded-t-md">
                             {med.name || "Unnamed Medication"}
                           </AccordionTrigger>
                           <AccordionContent className="px-4 pb-3 pt-2 space-y-3 text-sm border-t">
@@ -356,7 +359,7 @@ export function ScriptRecognizer() {
                                 {!med.dosage && !med.frequency && !med.notes && <p className="text-muted-foreground italic text-xs">No specific dosage/frequency/notes extracted by OCR.</p>}
                             </div>
                             {med.isLoadingInfo && <div className="flex items-center justify-center p-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /> <span className="ml-2 text-muted-foreground">Loading details...</span></div>}
-                            {med.infoError && <Alert variant="destructive" className="mt-2"><AlertTriangle className="h-4 w-4" /><AlertTitle>Error</AlertTitle><AlertDescription>{med.infoError}</AlertDescription></Alert>}
+                            {med.infoError && <Alert variant="destructive" className="mt-2"><AlertTriangle className="h-4 w-4" /><AlertTitle>Error Loading Details</AlertTitle><AlertDescription>{med.infoError}</AlertDescription></Alert>}
                             {med.info && !med.isLoadingInfo && (
                               <div className="space-y-2 pt-2 mt-2 border-t border-dashed">
                                 <p className="font-semibold text-xs text-muted-foreground mb-0.5">Detailed Information:</p>
@@ -375,34 +378,22 @@ export function ScriptRecognizer() {
                       ))}
                     </Accordion>
                   </div>
+                ) : (
+                   <p className="text-sm text-muted-foreground italic pt-2">No medications were clearly extracted from this image.</p>
                 )}
                 {analysisDetails.overallConfidence !== undefined && (
                   <p className="text-sm pt-2 border-t border-dashed"><strong className="font-medium text-foreground">AI Overall Confidence:</strong> {(analysisDetails.overallConfidence * 100).toFixed(0)}%</p>
                 )}
-                {analysisDetails.unclearSections && analysisDetails.unclearSections.length > 0 && (
-                  <div className="pt-2 border-t border-dashed">
-                    <h4 className="text-md font-medium text-amber-700">Potentially Unclear Sections:</h4>
-                    <ul className="list-disc pl-5 text-sm text-amber-600">
-                      {analysisDetails.unclearSections.map((section, idx) => <li key={idx}>{section}</li>)}
-                    </ul>
-                  </div>
-                )}
               </CardContent>
             </Card>
-            <details className="mt-2 group">
-                <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground font-medium p-2 border border-dashed rounded-md group-open:bg-muted/50">
-                    Show Raw JSON Output
-                </summary>
-                <pre className="mt-1 bg-gray-900 text-gray-100 p-3 rounded-md text-xs overflow-x-auto">{JSON.stringify(analysisDetails, null, 2)}</pre>
-            </details>
-            <Button onClick={resetToStart} variant="outline" className="w-full text-base py-3">
+            <Button onClick={resetToStart} variant="outline" className="w-full text-base py-3 transition-all duration-200 active:scale-95">
               <RefreshCw className="mr-2 h-5 w-5" /> Start New Scan
             </Button>
           </div>
         )}
       </CardContent>
 
-      <CardFooter className="text-center block pt-4 pb-6">
+      <CardFooter className="text-center block pt-4 pb-6 border-t border-border bg-muted/30">
         <p className="text-xs text-muted-foreground">Ensure the image is clear and well-lit for best results. Max file size: 10MB.</p>
       </CardFooter>
     </Card>
