@@ -131,7 +131,7 @@ export default function DashboardPage() {
       console.log("DashboardPage: Unsubscribing from Firestore listeners.");
       unsubscribes.forEach(unsub => unsub());
     };
-  }, [firebaseUser, authIsLoading, toast, dataLoading]);
+  }, [firebaseUser, authIsLoading, toast]);
 
 
   const handleBookingSuccess = async (newAppointment: UpcomingAppointment) => {
