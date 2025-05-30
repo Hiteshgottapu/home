@@ -381,7 +381,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {healthGoals.length === 0 && managedPrescriptions.length === 0 && upcomingAppointments.length === 0 && !dataLoading && !authIsLoading && (
+      {(healthGoals || []).length === 0 && managedPrescriptions.length === 0 && upcomingAppointments.length === 0 && !dataLoading && !authIsLoading && (
          <section className="mt-12 text-center">
             <Card className="max-w-lg mx-auto p-8 bg-card shadow-lg">
                 <BarChartHorizontalBig data-ai-hint="health chart" className="h-16 w-16 text-primary mx-auto mb-4" />
