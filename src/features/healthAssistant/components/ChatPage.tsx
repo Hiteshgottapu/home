@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Send, Loader2, Mic } from "lucide-react"; // Added Mic
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"; // Added this line
 
 const COMMON_SYMPTOMS = ['Headache', 'Fever', 'Cough', 'Fatigue', 'Nausea'];
 
