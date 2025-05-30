@@ -50,19 +50,18 @@ export function LoginForm() {
   });
 
   useEffect(() => {
-    console.log(`LoginForm (useEffect): Mode switched. isSignUpMode is now: ${isSignUpMode}. Resetting form and re-validating resolver.`);
+    console.log(`LoginForm (useEffect for mode switch): Mode switched. isSignUpMode is now: ${isSignUpMode}. Resetting form and re-validating resolver.`);
     form.reset({
       email: '',
       password: '',
       ...(isSignUpMode ? { name: '' } : { name: undefined }),
     });
-    // No need to manually re-set resolver if using `key` prop on form or if schema is dynamic in useForm
-  }, [isSignUpMode, form.reset]);
+  }, [isSignUpMode, form]);
 
 
   const handleSubmitAuth: SubmitHandler<LoginFormValues | SignUpFormValues> = async (data) => {
     const operationMode = isSignUpMode ? 'Sign Up' : 'Login';
-    console.log(`LoginForm (handleSubmitAuth BEGIN): Intending to ${operationMode}. isSignUpMode: ${isSignUpMode}. Data (password omitted):`, { ...data, password: '***' });
+    console.log(`LoginForm (handleSubmitAuth BEGIN): Intending to ${operationMode}. isSignUpMode: ${isSignUpMode}. Submitted Data (password omitted):`, { ...data, password: '***' });
 
     try {
       if (isSignUpMode) {
@@ -93,23 +92,26 @@ export function LoginForm() {
             description: "Welcome back to VitaLog Pro! Redirecting...",
           });
         } else {
-          console.error(`LoginForm (handleSubmitAuth - Login): loginWithEmailPassword returned false. Email: ${loginData.email}. This usually means invalid credentials or the user does not exist.`);
-          toast({
+          console.error(`LoginForm (handleSubmitAuth - Login): loginWithEmailPassword returned false. This typically means invalid credentials or user does not exist as handled by AuthContext.`);
+          // AuthContext now handles the specific toast for invalid credentials
+          // This path is taken if loginWithEmailPassword returns false for reasons other than throwing (though currently it always throws or succeeds)
+           toast({
             title: "Login Failed",
-            description: "Invalid email or password. Please try again or sign up if you don't have an account.",
+            description: "Invalid email or password. Please try again.",
             variant: "destructive",
           });
         }
       }
     } catch (error: any) {
-      const currentModeForError = isSignUpMode ? 'Sign Up' : 'Login';
-      console.error(`LoginForm (handleSubmitAuth CATCH): Error during ${currentModeForError}. isSignUpMode: ${isSignUpMode}. Error Code: ${error.code}, Message: ${error.message}. Submitted Data:`, { ...data, password: '***' }, "Full Error Object:", error);
+      const currentModeForErrorToast = isSignUpMode ? 'Sign Up' : 'Login';
+      console.error(`LoginForm (handleSubmitAuth CATCH): Error during ${currentModeForErrorToast}. isSignUpMode was: ${isSignUpMode}. Firebase Error Code: ${error.code}, Message: ${error.message}. Submitted Data (password omitted):`, { ...data, password: '***' }, "Full Error Object:", error);
 
       let errorMessage = "An unexpected error occurred. Please try again.";
       if (isSignUpMode && error.code) {
         switch (error.code) {
           case 'auth/email-already-in-use':
             errorMessage = 'This email is already registered. Please log in or use a different email.';
+            console.warn("LoginForm (handleSubmitAuth CATCH - Sign Up): Encountered 'auth/email-already-in-use'. User-friendly message will be shown.");
             break;
           case 'auth/weak-password':
             errorMessage = 'Password is too weak. It should be at least 6 characters.';
@@ -118,14 +120,16 @@ export function LoginForm() {
             errorMessage = error.message || errorMessage;
         }
       } else if (!isSignUpMode && error.code === 'auth/invalid-credential') {
-        // This specific case is now handled by loginWithEmailPassword returning false.
-        // However, if an unexpected error is thrown by loginWithEmailPassword, it might land here.
+         // This specific case is now handled by loginWithEmailPassword returning false and AuthContext logging it.
+         // The toast here will be more generic, which is fine.
         errorMessage = 'Invalid email or password. Please check your credentials.';
+        console.warn("LoginForm (handleSubmitAuth CATCH - Login): Encountered 'auth/invalid-credential'. This means Firebase rejected the login. A generic error message is shown by LoginForm, specific warning by AuthContext.");
       } else if (!isSignUpMode) {
-         errorMessage = 'Login attempt failed. Please try again later.';
+         errorMessage = 'Login attempt failed. Please check your credentials or try again later.';
       }
+      
       toast({
-        title: `${operationMode} Failed`,
+        title: `${currentModeForErrorToast} Failed`,
         description: errorMessage,
         variant: "destructive",
       });
@@ -144,12 +148,11 @@ export function LoginForm() {
           </CardHeader>
           <CardContent>
             <div className="space-y-8">
-              {isSignUpMode && (
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-1/4" />
-                  <Skeleton className="h-10 w-full" />
-                </div>
-              )}
+              {/* Skeleton for potential sign-up name field */}
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-1/4" />
+                <Skeleton className="h-10 w-full" />
+              </div>
               <div className="space-y-2">
                 <Skeleton className="h-4 w-1/4" />
                 <Skeleton className="h-10 w-full" />
@@ -183,20 +186,20 @@ export function LoginForm() {
         </CardHeader>
         <CardContent>
           <form
-            key={isSignUpMode ? 'signup-form' : 'login-form'}
+            key={isSignUpMode ? 'signup-form' : 'login-form'} // Crucial for re-initializing RHF on mode change
             onSubmit={form.handleSubmit(handleSubmitAuth)}
             className="space-y-6"
           >
             {isSignUpMode && (
               <div className="space-y-2">
-                <Label htmlFor="name">Full Name</Label>
+                <Label htmlFor="name-input">Full Name</Label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                   <Input
-                    id="name"
+                    id="name-input"
                     type="text"
                     placeholder="e.g., John Doe"
-                    {...form.register("name" as any)}
+                    {...form.register("name" as any)} // RHF knows 'name' is for SignUpFormValues
                     className={`pl-10 ${form.formState.errors.name ? "border-destructive" : ""}`}
                     disabled={authLoading}
                   />
@@ -205,11 +208,11 @@ export function LoginForm() {
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="email">Email Address</Label>
+              <Label htmlFor="email-input">Email Address</Label>
                <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                   <Input
-                    id="email"
+                    id="email-input" // Unique ID for label association
                     type="email"
                     placeholder="e.g., user@example.com"
                     {...form.register("email")}
@@ -220,11 +223,11 @@ export function LoginForm() {
               {form.formState.errors.email && <p className="text-sm text-destructive">{form.formState.errors.email.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password-input">Password</Label>
               <div className="relative">
                   <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                   <Input
-                    id="password"
+                    id="password-input" // Unique ID
                     type="password"
                     placeholder="••••••••"
                     {...form.register("password")}
@@ -247,7 +250,7 @@ export function LoginForm() {
               variant="link"
               className="p-0 h-auto text-primary hover:underline"
               onClick={() => setIsSignUpMode(!isSignUpMode)}
-              type="button"
+              type="button" // Important: type="button" to prevent form submission
               disabled={authLoading}
             >
               {isSignUpMode ? 'Login here' : 'Sign up now'}
@@ -258,3 +261,4 @@ export function LoginForm() {
     </div>
   );
 }
+
