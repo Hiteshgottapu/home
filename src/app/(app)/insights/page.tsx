@@ -35,32 +35,36 @@ export default function InsightsHubPage() {
         return;
     }
     setIsLoading(true);
+    console.log("InsightsHubPage: Setting up Firestore listener for prescriptions for user:", firebaseUser.uid);
     const prescriptionsQuery = query(collection(db, `users/${firebaseUser.uid}/prescriptions`), orderBy("uploadDate", "desc"));
     const unsubscribe = onSnapshot(prescriptionsQuery, (snapshot) => {
         const scripts: Prescription[] = [];
         snapshot.forEach(doc => scripts.push({ id: doc.id, ...doc.data() } as Prescription));
         setPrescriptions(scripts);
         setIsLoading(false);
+        console.log("InsightsHubPage: Prescriptions updated via snapshot. Count:", scripts.length);
     }, (error) => {
-        console.error("Error fetching prescriptions:", error);
-        toast({ title: "Error", description: "Could not fetch prescriptions.", variant: "destructive" });
+        console.error("InsightsHubPage: Error fetching prescriptions:", error);
+        toast({ title: "Error Fetching Prescriptions", description: "Could not fetch prescriptions. Please try refreshing.", variant: "destructive" });
         setIsLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      console.log("InsightsHubPage: Unsubscribing from prescriptions listener.");
+      unsubscribe();
+    };
   }, [firebaseUser, authIsLoading, toast]);
 
   const handleUploadSuccess = (newPrescription: Prescription) => {
     // Firestore onSnapshot will update the list, so no need to manually add here.
-    // setPrescriptions(prev => [newPrescription, ...prev]); // No longer needed with onSnapshot
-    toast({ title: "Upload Successful", description: `${newPrescription.fileName} has been added.`});
+    toast({ title: "Upload & Analysis Started", description: `${newPrescription.fileName} is being processed. Details will appear soon.`});
   };
 
   const handleViewDetails = (prescription: Prescription) => {
     setSelectedPrescription(prescription);
     setIsModalOpen(true);
   };
-  
+
   const handleVerify = (prescription: Prescription) => {
     setSelectedPrescription(prescription);
     setIsModalOpen(true);
@@ -74,7 +78,12 @@ export default function InsightsHubPage() {
     try {
         const presDocRef = doc(db, `users/${firebaseUser.uid}/prescriptions`, updatedPrescription.id);
         // Make sure not to save userId again if it's already part of the path, and id is path itself
-        const { id, userId, ...dataToUpdate } = updatedPrescription;
+        // Also, ensure status reflects verification
+        const { id, userId, ...dataToUpdate } = {
+          ...updatedPrescription,
+          status: 'verified' as Prescription['status'], // Explicitly set status
+          userVerificationStatus: 'verified' as Prescription['userVerificationStatus'],
+        };
         await updateDoc(presDocRef, dataToUpdate);
         toast({ title: "Verification Saved", description: "Your changes have been saved successfully." });
         // onSnapshot will update the local state
@@ -86,20 +95,34 @@ export default function InsightsHubPage() {
   };
 
   const filteredPrescriptions = prescriptions
-    .filter(p => p.fileName.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    .filter(p => p.fileName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                  p.extractedMedications?.some(med => med.name.toLowerCase().includes(searchTerm.toLowerCase())))
     .filter(p => filterStatus === 'all' || p.status === filterStatus);
-    // Sorting is now handled by Firestore query's orderBy
+    // Sorting is handled by Firestore query's orderBy
 
 
-  if (isLoading) {
+  if (isLoading && authIsLoading) { // Show loader if both auth and initial data load are pending
     return (
+      <div className="flex h-[calc(100vh-10rem)] items-center justify-center">
+        <Loader2 className="h-16 w-16 animate-spin text-primary" />
+        <p className="ml-3 text-muted-foreground">Loading user and prescriptions...</p>
+      </div>
+    );
+  }
+  
+  if (isLoading && firebaseUser) { // Show loader if auth is done, but initial prescription load is pending
+     return (
       <div className="flex h-[calc(100vh-10rem)] items-center justify-center">
         <Loader2 className="h-16 w-16 animate-spin text-primary" />
         <p className="ml-3 text-muted-foreground">Loading prescriptions...</p>
       </div>
     );
   }
+
+  if (!firebaseUser && !authIsLoading) { // If auth is done and still no user (should be redirected by layout)
+    return <div className="text-center py-10">Please log in to view your insights.</div>;
+  }
+
 
   return (
     <div className="container mx-auto py-2 px-0 md:px-4 space-y-8">
@@ -114,8 +137,8 @@ export default function InsightsHubPage() {
         <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
           <h2 className="text-2xl font-semibold text-foreground">Your Prescriptions</h2>
           <div className="flex items-center gap-2 w-full md:w-auto">
-            <Input 
-              placeholder="Search prescriptions..." 
+            <Input
+              placeholder="Search prescriptions..."
               className="max-w-xs"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -145,9 +168,9 @@ export default function InsightsHubPage() {
         {filteredPrescriptions.length > 0 ? (
           <div className={`grid gap-6 ${viewMode === 'grid' ? 'md:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'}`}>
             {filteredPrescriptions.map(p => (
-              <PrescriptionCard 
-                key={p.id} 
-                prescription={p} 
+              <PrescriptionCard
+                key={p.id}
+                prescription={p}
                 onViewDetails={handleViewDetails}
                 onVerify={handleVerify}
               />
@@ -158,9 +181,9 @@ export default function InsightsHubPage() {
             <FileSearch data-ai-hint="magnifying glass document" className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-foreground mb-2">No Prescriptions Found</h3>
             <p className="text-muted-foreground mb-4">
-              {searchTerm || filterStatus !== 'all' ? "Try adjusting your search or filter criteria." : "Upload your first prescription to get started."}
+              {prescriptions.length === 0 && !searchTerm && filterStatus === 'all' ? "Upload your first prescription to get started." : "Try adjusting your search or filter criteria, or clear them to see all prescriptions."}
             </p>
-            {!(searchTerm || filterStatus !== 'all') && 
+            {prescriptions.length === 0 && !searchTerm && filterStatus === 'all' &&
                 <Button onClick={() => document.getElementById('upload')?.scrollIntoView({ behavior: 'smooth' })}>
                     <PlusCircle className="mr-2 h-4 w-4" /> Upload Now
                 </Button>
@@ -168,7 +191,7 @@ export default function InsightsHubPage() {
           </div>
         )}
       </section>
-      
+
       <section className="mt-12">
          <h2 className="text-2xl font-semibold mb-4 text-foreground">Comprehensive Health Reports</h2>
           <Card className="shadow-md">
@@ -180,7 +203,7 @@ export default function InsightsHubPage() {
           </Card>
       </section>
 
-      <PrescriptionDetailModal 
+      <PrescriptionDetailModal
         prescription={selectedPrescription}
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -189,5 +212,3 @@ export default function InsightsHubPage() {
     </div>
   );
 }
-
-    

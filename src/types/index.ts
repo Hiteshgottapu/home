@@ -9,9 +9,9 @@ export interface MedicineInfo {
 
 export interface MedicationDetail {
   name: string;
-  dosage: string; // May be empty if only name is extracted by new Python CF
-  frequency: string; // May be empty if only name is extracted by new Python CF
-  info?: MedicineInfo; // This will not be populated by the new Python CF flow
+  dosage: string;
+  frequency: string;
+  info?: MedicineInfo;
 }
 
 export interface Prescription {
@@ -19,15 +19,14 @@ export interface Prescription {
   fileName: string;
   uploadDate: string; // ISO string
   status: 'pending' | 'verified' | 'needs_correction' | 'analyzing' | 'error';
-  extractedMedications?: MedicationDetail[]; // Will contain name, dosage/freq will be initially empty from Python CF
-  ocrConfidence?: number; // This field might not be available from the new Python CF.
+  extractedMedications?: MedicationDetail[];
+  ocrConfidence?: number;
   doctor?: string;
   patientName?: string;
-  fileUrl?: string; 
-  imageUrl?: string; 
-  storagePath?: string; 
+  imageUrl?: string;
+  storagePath?: string;
   userVerificationStatus?: 'pending' | 'verified' | 'needs_correction';
-  userId?: string; 
+  userId?: string; // Added for potential direct queries if needed, though path usually has it
 }
 
 export interface SuggestedCondition {
@@ -52,7 +51,7 @@ export interface HealthGoal {
   description: string;
   targetDate?: string; // ISO string YYYY-MM-DD
   status: 'pending' | 'in_progress' | 'completed';
-  userId?: string; 
+  userId?: string; // Added for potential direct queries
 }
 
 export interface AiFeedbackPreferences {
@@ -61,46 +60,37 @@ export interface AiFeedbackPreferences {
 }
 
 export interface UserProfile {
-  id: string; 
+  id: string;
   name: string;
-  email?: string;
-  phoneNumber?: string;
-  riskFactors?: Record<string, any>; 
+  email: string | null; // Allow null for Firestore
+  phoneNumber: string | null; // Allow null for Firestore
+  riskFactors: Record<string, any> | null; // Allow null
   aiFeedbackPreferences: AiFeedbackPreferences;
-  healthGoals: HealthGoal[]; 
-  dateOfBirth?: string; 
-  allergies?: string[];
-  emergencyContact?: { name: string, phone: string } | null; // Allow null for Firestore
+  healthGoals: HealthGoal[];
+  dateOfBirth: string | null; // Allow null
+  allergies: string[] | null; // Allow null
+  emergencyContact?: { name: string, phone: string } | null; // Allow null
 }
 
 export interface UpcomingAppointment {
-  id: string; 
-  serviceId: string; 
+  id: string;
+  serviceId: string; // Added
   serviceName: string;
-  doctorId: string; 
+  doctorId: string; // Added
   doctorName: string;
   dateTime: string; // ISO string
   notes?: string;
-  meetingLink: string; 
+  meetingLink: string;
   durationMinutes: number;
-  userId?: string; 
+  userId?: string; // Added for potential direct queries
 }
 
 export interface DoctorNote {
-  id: string; 
+  id: string;
   date: string; // ISO string
   doctorName: string;
   note: string;
-  appointmentId?: string; 
-  tags?: string[]; 
-  userId?: string; 
+  appointmentId?: string;
+  tags?: string[];
+  userId?: string; // Added for potential direct queries
 }
-
-
-// For AI flow outputs, if they are directly used in components without mapping
-// These Genkit types are no longer directly used by PrescriptionUploadForm
-// export type { AnalyzeSymptomsOutput } from '@/ai/flows/analyze-symptoms';
-// export type { ExtractMedicationDetailsOutput } from '@/ai/flows/extract-medication-details';
-
-
-    

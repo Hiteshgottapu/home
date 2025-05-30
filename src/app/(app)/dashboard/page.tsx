@@ -12,13 +12,13 @@ import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer, PieCha
 import { ActiveGoalTaskMenu } from '@/components/dashboard/ActiveGoalTaskMenu';
 import { ManagedPrescriptionsModal } from '@/components/dashboard/ManagedPrescriptionsModal';
 import { InteractionLogModal } from '@/components/dashboard/InteractionLogModal';
-import type { DoctorNote, Prescription, UpcomingAppointment } from '@/types'; // Added DoctorNote, Prescription
+import type { DoctorNote, Prescription, UpcomingAppointment } from '@/types';
 import { AppointmentBookingModal } from '@/components/dashboard/AppointmentBookingModal';
 import { UpcomingAppointmentsViewModal } from '@/components/dashboard/UpcomingAppointmentsViewModal';
 import { useToast } from "@/hooks/use-toast";
-import { addMinutes, format, subDays } from 'date-fns';
+import { addMinutes, format, subDays, parseISO } from 'date-fns';
 import { db } from '@/lib/firebase';
-import { collection, query, orderBy, getDocs, onSnapshot, Unsubscribe } from 'firebase/firestore';
+import { collection, query, orderBy, getDocs, onSnapshot, Unsubscribe, addDoc } from 'firebase/firestore';
 
 
 const mockChartData = [
@@ -54,10 +54,9 @@ export default function DashboardPage() {
   const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false);
   const [isPrescriptionsModalOpen, setIsPrescriptionsModalOpen] = useState(false);
   const [isInteractionLogModalOpen, setIsInteractionLogModalOpen] = useState(false);
-  
   const [isAppointmentBookingModalOpen, setIsAppointmentBookingModalOpen] = useState(false);
   const [isAppointmentsViewModalOpen, setIsAppointmentsViewModalOpen] = useState(false);
-  
+
   const [upcomingAppointments, setUpcomingAppointments] = useState<UpcomingAppointment[]>([]);
   const [managedPrescriptions, setManagedPrescriptions] = useState<Prescription[]>([]);
   const [doctorNotes, setDoctorNotes] = useState<DoctorNote[]>([]);
@@ -65,71 +64,101 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!firebaseUser || !db) {
-        if (!authIsLoading) setDataLoading(false); // If auth is done loading and no user, stop data loading
-        return;
+      if (!authIsLoading) setDataLoading(false);
+      return;
     }
+
+    console.log("DashboardPage: Setting up Firestore listeners for user:", firebaseUser.uid);
     setDataLoading(true);
     const unsubscribes: Unsubscribe[] = [];
+    let initialFetchesCompleted = 0;
+    const totalInitialFetches = 3; // Appointments, Prescriptions, Notes
+
+    const checkAllInitialDataLoaded = () => {
+      initialFetchesCompleted++;
+      if (initialFetchesCompleted >= totalInitialFetches) {
+        setDataLoading(false);
+        console.log("DashboardPage: All initial data fetches completed.");
+      }
+    };
 
     // Fetch Upcoming Appointments
     const appointmentsQuery = query(collection(db, `users/${firebaseUser.uid}/appointments`), orderBy("dateTime", "asc"));
     unsubscribes.push(onSnapshot(appointmentsQuery, (snapshot) => {
-        const appts: UpcomingAppointment[] = [];
-        snapshot.forEach(doc => appts.push({ id: doc.id, ...doc.data() } as UpcomingAppointment));
-        setUpcomingAppointments(appts);
+      const appts: UpcomingAppointment[] = [];
+      snapshot.forEach(doc => appts.push({ id: doc.id, ...doc.data() } as UpcomingAppointment));
+      setUpcomingAppointments(appts);
+      console.log("DashboardPage: Appointments updated via snapshot. Count:", appts.length);
+      if (dataLoading) checkAllInitialDataLoaded(); // Decrement loading counter only on first snapshot
     }, (error) => {
-        console.error("Error fetching appointments:", error);
-        toast({ title: "Error", description: "Could not fetch appointments.", variant: "destructive" });
+      console.error("DashboardPage: Error fetching appointments:", error);
+      toast({ title: "Error Fetching Appointments", description: "Could not fetch upcoming appointments. Please try refreshing.", variant: "destructive" });
+      if (dataLoading) checkAllInitialDataLoaded();
     }));
 
     // Fetch Managed Prescriptions
     const prescriptionsQuery = query(collection(db, `users/${firebaseUser.uid}/prescriptions`), orderBy("uploadDate", "desc"));
     unsubscribes.push(onSnapshot(prescriptionsQuery, (snapshot) => {
-        const scripts: Prescription[] = [];
-        snapshot.forEach(doc => scripts.push({ id: doc.id, ...doc.data() } as Prescription));
-        setManagedPrescriptions(scripts);
+      const scripts: Prescription[] = [];
+      snapshot.forEach(doc => scripts.push({ id: doc.id, ...doc.data() } as Prescription));
+      setManagedPrescriptions(scripts);
+      console.log("DashboardPage: Prescriptions updated via snapshot. Count:", scripts.length);
+      if (dataLoading) checkAllInitialDataLoaded();
     }, (error) => {
-        console.error("Error fetching prescriptions:", error);
-        toast({ title: "Error", description: "Could not fetch prescriptions.", variant: "destructive" });
+      console.error("DashboardPage: Error fetching prescriptions:", error);
+      toast({ title: "Error Fetching Prescriptions", description: "Could not fetch managed prescriptions. Please try refreshing.", variant: "destructive" });
+      if (dataLoading) checkAllInitialDataLoaded();
     }));
 
     // Fetch Doctor Notes
     const notesQuery = query(collection(db, `users/${firebaseUser.uid}/doctorNotes`), orderBy("date", "desc"));
     unsubscribes.push(onSnapshot(notesQuery, (snapshot) => {
-        const notes: DoctorNote[] = [];
-        snapshot.forEach(doc => notes.push({ id: doc.id, ...doc.data() } as DoctorNote));
-        setDoctorNotes(notes);
+      const notes: DoctorNote[] = [];
+      snapshot.forEach(doc => notes.push({ id: doc.id, ...doc.data() } as DoctorNote));
+      setDoctorNotes(notes);
+      console.log("DashboardPage: Doctor notes updated via snapshot. Count:", notes.length);
+      if (dataLoading) checkAllInitialDataLoaded();
     }, (error) => {
-        console.error("Error fetching doctor notes:", error);
-        toast({ title: "Error", description: "Could not fetch doctor notes.", variant: "destructive" });
+      console.error("DashboardPage: Error fetching doctor notes:", error);
+      toast({ title: "Error Fetching Doctor Notes", description: "Could not fetch doctor notes. Please try refreshing.", variant: "destructive" });
+      if (dataLoading) checkAllInitialDataLoaded();
     }));
-    
-    // After setting up all listeners, if initial fetches are done (or even before, if snapshots update quickly)
-    // we can consider loading complete. A more robust way might involve Promise.all for initial getDocs.
-    setDataLoading(false); 
 
-    return () => unsubscribes.forEach(unsub => unsub());
+    return () => {
+      console.log("DashboardPage: Unsubscribing from Firestore listeners.");
+      unsubscribes.forEach(unsub => unsub());
+    };
   }, [firebaseUser, authIsLoading, toast]);
 
 
   const handleBookingSuccess = (newAppointment: UpcomingAppointment) => {
-    // No need to manually add here if onSnapshot is working for appointments
-    // setUpcomingAppointments(prev => [...prev, newAppointment].sort((a,b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()));
+    // Firestore onSnapshot will update the upcomingAppointments state,
+    // so no need to manually add it here. We just show a toast.
     toast({
-        title: "Appointment Confirmed!",
-        description: `Your appointment for ${newAppointment.serviceName} with ${newAppointment.doctorName} is booked.`,
+      title: "Appointment Confirmed!",
+      description: `Your appointment for ${newAppointment.serviceName} with ${newAppointment.doctorName} on ${format(parseISO(newAppointment.dateTime), 'PPPp')} is booked.`,
     });
-    setIsAppointmentBookingModalOpen(false);
-    setIsAppointmentsViewModalOpen(true); 
+    setIsAppointmentBookingModalOpen(false); // Close booking modal
+    setIsAppointmentsViewModalOpen(true); // Open view modal to see the new appointment
   };
 
   const handleOpenBookingModal = () => {
-    setIsAppointmentsViewModalOpen(false); 
-    setIsAppointmentBookingModalOpen(true); 
+    setIsAppointmentsViewModalOpen(false);
+    setIsAppointmentBookingModalOpen(true);
   };
-  
-  if (authIsLoading || dataLoading) {
+
+  if (authIsLoading || (dataLoading && !firebaseUser)) { // Show loader if auth is loading or data is loading AND no firebase user yet
     return (
+      <div className="flex h-[calc(100vh-10rem)] items-center justify-center">
+        <Loader2 className="h-16 w-16 animate-spin text-primary" />
+        <p className="ml-3 text-muted-foreground">Loading dashboard...</p>
+      </div>
+    );
+  }
+  
+  // After auth is done, if data is still loading for an authenticated user
+  if (firebaseUser && dataLoading) {
+     return (
       <div className="flex h-[calc(100vh-10rem)] items-center justify-center">
         <Loader2 className="h-16 w-16 animate-spin text-primary" />
         <p className="ml-3 text-muted-foreground">Loading dashboard data...</p>
@@ -137,18 +166,19 @@ export default function DashboardPage() {
     );
   }
 
+
   if (!userProfile) {
-    // This case should ideally be handled by the AppLayout redirecting to login
     return (
       <div className="flex items-center justify-center h-full">
-        <p>User profile not found. Please try logging in again.</p>
+        <p>User profile not found or still loading. Please try logging in again or wait a moment.</p>
       </div>
     );
   }
 
   const activeGoalsCount = userProfile.healthGoals.filter(g => g.status === 'in_progress').length;
-  const prescriptionsCount = managedPrescriptions.length;
-  const interactionLogsCount = mockAiChatLogs.length + doctorNotes.length;
+  const prescriptionsCount = managedPrescriptions.length; // From Firestore
+  const interactionLogsCount = mockAiChatLogs.length + doctorNotes.length; // Doctor notes from Firestore
+  const currentUpcomingAppointmentsCount = upcomingAppointments.length; // From Firestore
 
 
   return (
@@ -242,8 +272,8 @@ export default function DashboardPage() {
             <CalendarCheck className="h-5 w-5 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">{upcomingAppointments.length}</div>
-            <p className="text-xs text-muted-foreground">{upcomingAppointments.length > 0 ? `View appointments` : `Book an appointment`}</p>
+            <div className="text-2xl font-bold text-primary">{currentUpcomingAppointmentsCount}</div>
+            <p className="text-xs text-muted-foreground">{currentUpcomingAppointmentsCount > 0 ? `View appointments` : `Book an appointment`}</p>
           </CardContent>
         </Card>
       </div>
@@ -322,7 +352,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {activeGoalsCount === 0 && prescriptionsCount === 0 && upcomingAppointments.length === 0 && (
+      {userProfile.healthGoals.length === 0 && managedPrescriptions.length === 0 && upcomingAppointments.length === 0 && !dataLoading && (
          <section className="mt-12 text-center">
             <Card className="max-w-lg mx-auto p-8 bg-card shadow-lg">
                 <BarChartHorizontalBig data-ai-hint="health chart" className="h-16 w-16 text-primary mx-auto mb-4" />
@@ -345,28 +375,26 @@ export default function DashboardPage() {
       <ManagedPrescriptionsModal
         isOpen={isPrescriptionsModalOpen}
         onClose={() => setIsPrescriptionsModalOpen(false)}
-        prescriptions={managedPrescriptions} // Pass fetched prescriptions
+        prescriptions={managedPrescriptions}
       />
       <InteractionLogModal
         isOpen={isInteractionLogModalOpen}
         onClose={() => setIsInteractionLogModalOpen(false)}
-        aiChatLogs={mockAiChatLogs} // AI chats are still mock
-        doctorNotes={doctorNotes} // Pass fetched doctor notes
+        aiChatLogs={mockAiChatLogs}
+        doctorNotes={doctorNotes}
       />
       <UpcomingAppointmentsViewModal
         isOpen={isAppointmentsViewModalOpen}
         onClose={() => setIsAppointmentsViewModalOpen(false)}
-        appointments={upcomingAppointments} // Pass fetched appointments
+        appointments={upcomingAppointments}
         onOpenBookingModal={handleOpenBookingModal}
       />
       <AppointmentBookingModal
         isOpen={isAppointmentBookingModalOpen}
         onClose={() => setIsAppointmentBookingModalOpen(false)}
-        isFirstAppointmentFree={upcomingAppointments.length === 0}
+        isFirstAppointmentFree={currentUpcomingAppointmentsCount === 0}
         onBookingSuccess={handleBookingSuccess}
       />
     </div>
   );
 }
-
-    

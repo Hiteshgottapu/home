@@ -11,27 +11,27 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { UserCog, ShieldCheck, Target, BellRing, PlusCircle, Edit3, Download, LogOut, Trash2, Loader2 } from 'lucide-react';
 import { HealthGoalItem } from '@/components/profile/HealthGoalItem';
 import { HealthGoalModal } from '@/components/profile/HealthGoalModal';
-import type { HealthGoal, AiFeedbackPreferences } from '@/types';
+import type { HealthGoal, AiFeedbackPreferences, UserProfile } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 export default function ProfilePage() {
-  const { userProfile, addHealthGoal, updateHealthGoal, deleteHealthGoal: authDeleteHealthGoal, updateAiPreferences, logout, isLoading: authIsLoading, fetchHealthGoals } = useAuth();
+  const { userProfile, addHealthGoal, updateHealthGoal, deleteHealthGoal: authDeleteHealthGoal, updateAiPreferences, logout, isLoading: authIsLoading } = useAuth();
   const { toast } = useToast();
 
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<HealthGoal | null>(null);
-  const [currentAiPreferences, setCurrentAiPreferences] = useState<AiFeedbackPreferences | undefined>(userProfile?.aiFeedbackPreferences);
+  const [currentAiPreferences, setCurrentAiPreferences] = useState<AiFeedbackPreferences | undefined>(undefined);
   const [pageLoading, setPageLoading] = useState(true);
 
   useEffect(() => {
-    if (userProfile) {
-        setCurrentAiPreferences(userProfile.aiFeedbackPreferences);
-        setPageLoading(authIsLoading); // Reflect auth loading state
-    } else if (!authIsLoading) { // if userProfile is null and auth is not loading, implies no user
-        setPageLoading(false);
+    // pageLoading should primarily reflect authIsLoading until userProfile is available.
+    setPageLoading(authIsLoading);
+    if (userProfile && !authIsLoading) {
+      setCurrentAiPreferences(userProfile.aiFeedbackPreferences);
     }
   }, [userProfile, authIsLoading]);
+
 
   const handleSaveGoal = async (goalData: Omit<HealthGoal, 'id' | 'userId'> | HealthGoal) => {
     try {
@@ -42,7 +42,7 @@ export default function ProfilePage() {
         await addHealthGoal(goalData);
         toast({ title: "Goal Added", description: `New goal "${goalData.description}" created.` });
       }
-      // await fetchHealthGoals(); // Refresh goals list from Firestore
+      // AuthContext's onSnapshot for healthGoals will update the userProfile state
     } catch (error) {
       console.error("Error saving goal:", error);
       toast({ title: "Error Saving Goal", description: "Could not save your health goal.", variant: "destructive"});
@@ -60,46 +60,44 @@ export default function ProfilePage() {
     try {
       await authDeleteHealthGoal(goalId);
       toast({ title: "Goal Deleted", variant: "destructive" });
-      // await fetchHealthGoals(); // Refresh goals list from Firestore
+      // AuthContext's onSnapshot will update
     } catch (error) {
       console.error("Error deleting goal:", error);
       toast({ title: "Error Deleting Goal", description: "Could not delete your health goal.", variant: "destructive"});
     }
   };
-  
+
   const handleAiPreferenceChange = async (key: keyof AiFeedbackPreferences, value: string) => {
     if (userProfile && currentAiPreferences) {
-        const newPrefs = {...currentAiPreferences, [key]: value};
-        setCurrentAiPreferences(newPrefs); // Optimistic UI update
-        try {
-            await updateAiPreferences(newPrefs); 
-            toast({ title: "AI Preferences Updated" });
-        } catch (error) {
-            console.error("Error updating AI preferences:", error);
-            toast({ title: "Update Failed", description: "Could not save AI preferences.", variant: "destructive"});
-            // Revert optimistic update if needed, or refetch
-            setCurrentAiPreferences(userProfile.aiFeedbackPreferences);
-        }
+      const newPrefs = { ...currentAiPreferences, [key]: value };
+      setCurrentAiPreferences(newPrefs); // Optimistic UI update
+      try {
+        await updateAiPreferences(newPrefs);
+        toast({ title: "AI Preferences Updated" });
+      } catch (error) {
+        console.error("Error updating AI preferences:", error);
+        toast({ title: "Update Failed", description: "Could not save AI preferences.", variant: "destructive"});
+        // Revert optimistic update by fetching from userProfile if error
+        setCurrentAiPreferences(userProfile.aiFeedbackPreferences);
+      }
     }
   };
-  
-  useEffect(() => {
-    if (userProfile?.aiFeedbackPreferences) {
-      setCurrentAiPreferences(userProfile.aiFeedbackPreferences);
-    }
-  }, [userProfile?.aiFeedbackPreferences]);
 
   if (pageLoading) {
     return (
       <div className="flex h-[calc(100vh-10rem)] items-center justify-center">
         <Loader2 className="h-16 w-16 animate-spin text-primary" />
+        <p className="ml-3 text-muted-foreground">Loading profile...</p>
       </div>
     );
   }
 
   if (!userProfile) {
-    return <div className="text-center py-10">No user profile found. Please try logging in again.</div>;
+    return <div className="text-center py-10">No user profile found. Please try logging in again or wait a moment.</div>;
   }
+  // Ensure currentAiPreferences is initialized after userProfile is confirmed to be available
+  const aiPrefsToUse = currentAiPreferences || userProfile.aiFeedbackPreferences;
+
 
   return (
     <div className="container mx-auto py-2 px-0 md:px-4 space-y-8">
@@ -123,21 +121,21 @@ export default function ProfilePage() {
             </div>
             <div>
               <Label htmlFor="phone">Phone Number</Label>
-              <Input id="phone" value={userProfile.phoneNumber || ''} readOnly disabled className="bg-muted/30"/>
+              <Input id="phone" value={userProfile.phoneNumber || 'Not provided'} readOnly disabled className="bg-muted/30"/>
             </div>
             <div>
               <Label htmlFor="email">Email Address</Label>
-              <Input id="email" type="email" value={userProfile.email || ''} readOnly disabled className="bg-muted/30"/>
+              <Input id="email" type="email" value={userProfile.email || 'Not provided'} readOnly disabled className="bg-muted/30"/>
             </div>
              <div>
               <Label htmlFor="dob">Date of Birth</Label>
-              <Input id="dob" value={userProfile.dateOfBirth ? new Date(userProfile.dateOfBirth).toLocaleDateString() : ''} readOnly disabled className="bg-muted/30"/>
+              <Input id="dob" value={userProfile.dateOfBirth ? new Date(userProfile.dateOfBirth).toLocaleDateString() : 'Not provided'} readOnly disabled className="bg-muted/30"/>
             </div>
           </div>
            <Button variant="outline" disabled className="mt-2"><Edit3 className="mr-2 h-4 w-4" />Edit Profile (Coming Soon)</Button>
         </CardContent>
       </Card>
-      
+
       <Card className="shadow-md" id="medical">
         <CardHeader>
           <CardTitle className="text-xl">Medical Information</CardTitle>
@@ -150,7 +148,7 @@ export default function ProfilePage() {
             </div>
             <div>
               <Label htmlFor="riskFactors">Known Risk Factors</Label>
-              <Input id="riskFactors" value={userProfile.riskFactors ? Object.entries(userProfile.riskFactors).map(([k,v]) => `${k}: ${v}`).join('; ') : 'Not specified'} readOnly disabled className="bg-muted/30"/>
+              <Input id="riskFactors" value={userProfile.riskFactors && Object.keys(userProfile.riskFactors).length > 0 ? Object.entries(userProfile.riskFactors).map(([k,v]) => `${k}: ${v}`).join('; ') : 'Not specified'} readOnly disabled className="bg-muted/30"/>
             </div>
             <Button variant="outline" disabled><Edit3 className="mr-2 h-4 w-4" />Update Medical Info (Coming Soon)</Button>
         </CardContent>
@@ -167,13 +165,13 @@ export default function ProfilePage() {
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
-          {authIsLoading && userProfile.healthGoals.length === 0 ? (
+          {authIsLoading && userProfile.healthGoals.length === 0 ? ( // Show loader only if auth is loading AND no goals yet
              <div className="text-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /> <p>Loading goals...</p></div>
           ) : userProfile.healthGoals.length > 0 ? (
             userProfile.healthGoals.map(goal => (
-              <HealthGoalItem 
-                key={goal.id} 
-                goal={goal} 
+              <HealthGoalItem
+                key={goal.id}
+                goal={goal}
                 onUpdateGoalStatus={(goalId, status) => updateHealthGoal({ ...userProfile.healthGoals.find(g=>g.id===goalId)!, status})}
                 onEditGoal={handleEditGoal}
                 onDeleteGoal={handleDeleteGoal}
@@ -184,9 +182,9 @@ export default function ProfilePage() {
           )}
         </CardContent>
       </Card>
-      <HealthGoalModal 
-        isOpen={isGoalModalOpen} 
-        onClose={() => setIsGoalModalOpen(false)} 
+      <HealthGoalModal
+        isOpen={isGoalModalOpen}
+        onClose={() => setIsGoalModalOpen(false)}
         onSaveGoal={handleSaveGoal}
         goal={editingGoal}
       />
@@ -200,8 +198,8 @@ export default function ProfilePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
             <div>
                 <Label htmlFor="symptomDetail">Symptom Analysis Detail</Label>
-                <Select 
-                    value={currentAiPreferences?.symptomExplainabilityLevel || 'brief'}
+                <Select
+                    value={aiPrefsToUse.symptomExplainabilityLevel}
                     onValueChange={(value) => handleAiPreferenceChange('symptomExplainabilityLevel', value)}
                     disabled={authIsLoading}
                 >
@@ -217,7 +215,7 @@ export default function ProfilePage() {
             <div>
                 <Label htmlFor="nudgeFrequency">Nudge Frequency</Label>
                 <Select
-                    value={currentAiPreferences?.nudgeFrequency || 'medium'}
+                    value={aiPrefsToUse.nudgeFrequency}
                     onValueChange={(value) => handleAiPreferenceChange('nudgeFrequency', value)}
                     disabled={authIsLoading}
                 >
@@ -291,5 +289,3 @@ export default function ProfilePage() {
     </div>
   );
 }
-
-    
