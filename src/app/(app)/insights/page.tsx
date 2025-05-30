@@ -16,6 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/lib/firebase';
 import { collection, query, orderBy, onSnapshot, Unsubscribe, doc, updateDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function InsightsHubPage() {
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
@@ -77,16 +78,13 @@ export default function InsightsHubPage() {
     }
     try {
         const presDocRef = doc(db, `users/${firebaseUser.uid}/prescriptions`, updatedPrescription.id);
-        // Make sure not to save userId again if it's already part of the path, and id is path itself
-        // Also, ensure status reflects verification
         const { id, userId, ...dataToUpdate } = {
           ...updatedPrescription,
-          status: 'verified' as Prescription['status'], // Explicitly set status
+          status: 'verified' as Prescription['status'], 
           userVerificationStatus: 'verified' as Prescription['userVerificationStatus'],
         };
         await updateDoc(presDocRef, dataToUpdate);
         toast({ title: "Verification Saved", description: "Your changes have been saved successfully." });
-        // onSnapshot will update the local state
     } catch (error) {
         console.error("Error saving verification:", error);
         toast({ title: "Save Failed", description: "Could not save your verification.", variant: "destructive"});
@@ -98,28 +96,57 @@ export default function InsightsHubPage() {
     .filter(p => p.fileName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                  p.extractedMedications?.some(med => med.name.toLowerCase().includes(searchTerm.toLowerCase())))
     .filter(p => filterStatus === 'all' || p.status === filterStatus);
-    // Sorting is handled by Firestore query's orderBy
 
 
-  if (isLoading && authIsLoading) { // Show loader if both auth and initial data load are pending
+  const renderSkeletonCards = (count: number) => (
+    Array.from({ length: count }).map((_, index) => (
+      <Card key={index} className="shadow-md w-full">
+        <CardHeader>
+          <div className="flex justify-between items-start gap-2">
+            <div className="flex-1 min-w-0">
+              <Skeleton className="h-5 w-3/4 mb-2" />
+              <Skeleton className="h-3 w-1/2" />
+            </div>
+            <Skeleton className="h-6 w-20 rounded-full" />
+          </div>
+        </CardHeader>
+        <CardContent className="py-2">
+          <Skeleton className="h-4 w-1/3 mb-2" />
+          <Skeleton className="h-3 w-full mb-1" />
+          <Skeleton className="h-3 w-5/6" />
+        </CardContent>
+        <CardFooter className="flex justify-end gap-2 pt-4">
+          <Skeleton className="h-9 w-24 rounded-md" />
+          <Skeleton className="h-9 w-28 rounded-md" />
+        </CardFooter>
+      </Card>
+    ))
+  );
+
+  if (authIsLoading) { 
     return (
-      <div className="flex h-[calc(100vh-10rem)] items-center justify-center">
-        <Loader2 className="h-16 w-16 animate-spin text-primary" />
-        <p className="ml-3 text-muted-foreground">Loading user and prescriptions...</p>
+      <div className="container mx-auto py-2 px-0 md:px-4 space-y-8">
+        <Skeleton className="h-10 w-1/3 mb-1" />
+        <Skeleton className="h-4 w-1/2 mb-6" />
+        <Skeleton className="h-64 w-full rounded-lg mb-8" /> {/* For PrescriptionUploadForm */}
+        
+        <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+          <Skeleton className="h-8 w-1/4" />
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            <Skeleton className="h-10 w-40" />
+            <Skeleton className="h-10 w-32" />
+            <Skeleton className="h-10 w-10" />
+            <Skeleton className="h-10 w-10" />
+          </div>
+        </div>
+        <div className={`grid gap-6 ${viewMode === 'grid' ? 'md:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'}`}>
+          {renderSkeletonCards(viewMode === 'grid' ? 3 : 2)}
+        </div>
       </div>
     );
   }
   
-  if (isLoading && firebaseUser) { // Show loader if auth is done, but initial prescription load is pending
-     return (
-      <div className="flex h-[calc(100vh-10rem)] items-center justify-center">
-        <Loader2 className="h-16 w-16 animate-spin text-primary" />
-        <p className="ml-3 text-muted-foreground">Loading prescriptions...</p>
-      </div>
-    );
-  }
-
-  if (!firebaseUser && !authIsLoading) { // If auth is done and still no user (should be redirected by layout)
+  if (!firebaseUser && !authIsLoading) { 
     return <div className="text-center py-10">Please log in to view your insights.</div>;
   }
 
@@ -156,16 +183,20 @@ export default function InsightsHubPage() {
                 <SelectItem value="error">Error</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant={viewMode === 'list' ? "default" : "outline"} size="icon" onClick={() => setViewMode('list')} aria-label="List view">
+            <Button variant={viewMode === 'list' ? "default" : "outline"} size="icon" onClick={() => setViewMode('list')} aria-label="List view" className="transition-all duration-200 active:scale-90">
               <List className="h-4 w-4"/>
             </Button>
-            <Button variant={viewMode === 'grid' ? "default" : "outline"} size="icon" onClick={() => setViewMode('grid')} aria-label="Grid view">
+            <Button variant={viewMode === 'grid' ? "default" : "outline"} size="icon" onClick={() => setViewMode('grid')} aria-label="Grid view" className="transition-all duration-200 active:scale-90">
               <LayoutGrid className="h-4 w-4"/>
             </Button>
           </div>
         </div>
 
-        {filteredPrescriptions.length > 0 ? (
+        {isLoading && firebaseUser ? (
+          <div className={`grid gap-6 ${viewMode === 'grid' ? 'md:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'}`}>
+            {renderSkeletonCards(viewMode === 'grid' ? 3 : 2)}
+          </div>
+        ) : filteredPrescriptions.length > 0 ? (
           <div className={`grid gap-6 ${viewMode === 'grid' ? 'md:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'}`}>
             {filteredPrescriptions.map(p => (
               <PrescriptionCard
@@ -181,10 +212,12 @@ export default function InsightsHubPage() {
             <FileSearch data-ai-hint="magnifying glass document" className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-foreground mb-2">No Prescriptions Found</h3>
             <p className="text-muted-foreground mb-4">
-              {prescriptions.length === 0 && !searchTerm && filterStatus === 'all' ? "Upload your first prescription to get started." : "Try adjusting your search or filter criteria, or clear them to see all prescriptions."}
+              {prescriptions.length === 0 && !searchTerm && filterStatus === 'all' 
+                ? "Upload your first prescription to get started." 
+                : "Try adjusting your search or filter criteria, or clear them to see all prescriptions."}
             </p>
             {prescriptions.length === 0 && !searchTerm && filterStatus === 'all' &&
-                <Button onClick={() => document.getElementById('upload')?.scrollIntoView({ behavior: 'smooth' })}>
+                <Button onClick={() => document.getElementById('upload')?.scrollIntoView({ behavior: 'smooth' })} className="transition-all duration-300 active:scale-95">
                     <PlusCircle className="mr-2 h-4 w-4" /> Upload Now
                 </Button>
             }

@@ -14,19 +14,17 @@ import { HealthGoalModal } from '@/components/profile/HealthGoalModal';
 import type { HealthGoal, AiFeedbackPreferences, UserProfile } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function ProfilePage() {
-  const { userProfile, addHealthGoal, updateHealthGoal, deleteHealthGoal: authDeleteHealthGoal, updateAiPreferences, logout, isLoading: authIsLoading } = useAuth();
+  const { userProfile, addHealthGoal, updateHealthGoal, deleteHealthGoal: authDeleteHealthGoal, updateAiPreferences, logout, isLoading: authIsLoading, healthGoals } = useAuth();
   const { toast } = useToast();
 
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<HealthGoal | null>(null);
   const [currentAiPreferences, setCurrentAiPreferences] = useState<AiFeedbackPreferences | undefined>(undefined);
-  const [pageLoading, setPageLoading] = useState(true);
-
+  
   useEffect(() => {
-    // pageLoading should primarily reflect authIsLoading until userProfile is available.
-    setPageLoading(authIsLoading);
     if (userProfile && !authIsLoading) {
       setCurrentAiPreferences(userProfile.aiFeedbackPreferences);
     }
@@ -42,7 +40,6 @@ export default function ProfilePage() {
         await addHealthGoal(goalData);
         toast({ title: "Goal Added", description: `New goal "${goalData.description}" created.` });
       }
-      // AuthContext's onSnapshot for healthGoals will update the userProfile state
     } catch (error) {
       console.error("Error saving goal:", error);
       toast({ title: "Error Saving Goal", description: "Could not save your health goal.", variant: "destructive"});
@@ -60,7 +57,6 @@ export default function ProfilePage() {
     try {
       await authDeleteHealthGoal(goalId);
       toast({ title: "Goal Deleted", variant: "destructive" });
-      // AuthContext's onSnapshot will update
     } catch (error) {
       console.error("Error deleting goal:", error);
       toast({ title: "Error Deleting Goal", description: "Could not delete your health goal.", variant: "destructive"});
@@ -70,24 +66,35 @@ export default function ProfilePage() {
   const handleAiPreferenceChange = async (key: keyof AiFeedbackPreferences, value: string) => {
     if (userProfile && currentAiPreferences) {
       const newPrefs = { ...currentAiPreferences, [key]: value };
-      setCurrentAiPreferences(newPrefs); // Optimistic UI update
+      setCurrentAiPreferences(newPrefs); 
       try {
         await updateAiPreferences(newPrefs);
         toast({ title: "AI Preferences Updated" });
       } catch (error) {
         console.error("Error updating AI preferences:", error);
         toast({ title: "Update Failed", description: "Could not save AI preferences.", variant: "destructive"});
-        // Revert optimistic update by fetching from userProfile if error
         setCurrentAiPreferences(userProfile.aiFeedbackPreferences);
       }
     }
   };
 
-  if (pageLoading) {
+  if (authIsLoading && !userProfile) {
     return (
-      <div className="flex h-[calc(100vh-10rem)] items-center justify-center">
-        <Loader2 className="h-16 w-16 animate-spin text-primary" />
-        <p className="ml-3 text-muted-foreground">Loading profile...</p>
+      <div className="container mx-auto py-2 px-0 md:px-4 space-y-8">
+        <Skeleton className="h-12 w-1/2 mb-2" />
+        <Skeleton className="h-6 w-3/4 mb-8" />
+        {[...Array(5)].map((_, i) => (
+            <Card key={i} className="shadow-md mb-6">
+                <CardHeader>
+                    <Skeleton className="h-8 w-1/3 mb-1" />
+                    <Skeleton className="h-4 w-2/3" />
+                </CardHeader>
+                <CardContent>
+                    <Skeleton className="h-10 w-full" />
+                     <Skeleton className="h-10 w-1/4 mt-3" />
+                </CardContent>
+            </Card>
+        ))}
       </div>
     );
   }
@@ -95,7 +102,7 @@ export default function ProfilePage() {
   if (!userProfile) {
     return <div className="text-center py-10">No user profile found. Please try logging in again or wait a moment.</div>;
   }
-  // Ensure currentAiPreferences is initialized after userProfile is confirmed to be available
+  
   const aiPrefsToUse = currentAiPreferences || userProfile.aiFeedbackPreferences;
 
 
@@ -132,7 +139,7 @@ export default function ProfilePage() {
               <Input id="dob" value={userProfile.dateOfBirth ? new Date(userProfile.dateOfBirth).toLocaleDateString() : 'Not provided'} readOnly disabled className="bg-muted/30"/>
             </div>
           </div>
-           <Button variant="outline" disabled className="mt-2"><Edit3 className="mr-2 h-4 w-4" />Edit Profile (Coming Soon)</Button>
+           <Button variant="outline" disabled className="mt-2 transition-all duration-300 active:scale-95"><Edit3 className="mr-2 h-4 w-4" />Edit Profile (Coming Soon)</Button>
         </CardContent>
       </Card>
 
@@ -150,7 +157,7 @@ export default function ProfilePage() {
               <Label htmlFor="riskFactors">Known Risk Factors</Label>
               <Input id="riskFactors" value={userProfile.riskFactors && Object.keys(userProfile.riskFactors).length > 0 ? Object.entries(userProfile.riskFactors).map(([k,v]) => `${k}: ${v}`).join('; ') : 'Not specified'} readOnly disabled className="bg-muted/30"/>
             </div>
-            <Button variant="outline" disabled><Edit3 className="mr-2 h-4 w-4" />Update Medical Info (Coming Soon)</Button>
+            <Button variant="outline" disabled className="transition-all duration-300 active:scale-95"><Edit3 className="mr-2 h-4 w-4" />Update Medical Info (Coming Soon)</Button>
         </CardContent>
       </Card>
 
@@ -160,19 +167,38 @@ export default function ProfilePage() {
             <CardTitle className="text-xl flex items-center gap-2"><Target className="h-6 w-6 text-primary"/>Health Goals</CardTitle>
             <CardDescription>Track and manage your personal health objectives.</CardDescription>
           </div>
-          <Button onClick={() => { setEditingGoal(null); setIsGoalModalOpen(true); }}>
+          <Button onClick={() => { setEditingGoal(null); setIsGoalModalOpen(true); }} className="transition-all duration-300 active:scale-95">
             <PlusCircle className="mr-2 h-4 w-4" /> Add New Health Goal
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
-          {authIsLoading && userProfile.healthGoals.length === 0 ? ( // Show loader only if auth is loading AND no goals yet
-             <div className="text-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" /> <p>Loading goals...</p></div>
-          ) : userProfile.healthGoals.length > 0 ? (
-            userProfile.healthGoals.map(goal => (
+          {authIsLoading && healthGoals.length === 0 ? ( 
+             <div className="space-y-3">
+                {[...Array(2)].map((_, i) => 
+                  <Card key={i} className="w-full shadow-sm">
+                    <CardContent className="p-4 flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <Skeleton className="h-5 w-5 rounded-sm" />
+                            <div className="flex-1 min-w-0 space-y-1">
+                                <Skeleton className="h-5 w-3/4" />
+                                <Skeleton className="h-3 w-1/2" />
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                            <Skeleton className="h-6 w-20 rounded-full" />
+                            <Skeleton className="h-8 w-8 rounded-md" />
+                            <Skeleton className="h-8 w-8 rounded-md" />
+                        </div>
+                    </CardContent>
+                  </Card>
+                )}
+             </div>
+          ) : healthGoals.length > 0 ? (
+            healthGoals.map(goal => (
               <HealthGoalItem
                 key={goal.id}
                 goal={goal}
-                onUpdateGoalStatus={(goalId, status) => updateHealthGoal({ ...userProfile.healthGoals.find(g=>g.id===goalId)!, status})}
+                onUpdateGoalStatus={(goalId, status) => updateHealthGoal({ ...healthGoals.find(g=>g.id===goalId)!, status})}
                 onEditGoal={handleEditGoal}
                 onDeleteGoal={handleDeleteGoal}
               />
@@ -242,10 +268,10 @@ export default function ProfilePage() {
             <Button variant="link" className="p-0 h-auto text-primary block">View Privacy Policy</Button>
             <Button variant="link" className="p-0 h-auto text-primary block">Manage Your Data Consent</Button>
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
-            <Button variant="outline" disabled><Download className="mr-2 h-4 w-4"/>Request Data Export (Coming Soon)</Button>
+            <Button variant="outline" disabled className="transition-all duration-300 active:scale-95"><Download className="mr-2 h-4 w-4"/>Request Data Export (Coming Soon)</Button>
             <AlertDialog>
                 <AlertDialogTrigger asChild>
-                    <Button variant="destructive" disabled><Trash2 className="mr-2 h-4 w-4"/>Request Account Deletion (Coming Soon)</Button>
+                    <Button variant="destructive" disabled className="transition-all duration-300 active:scale-95"><Trash2 className="mr-2 h-4 w-4"/>Request Account Deletion (Coming Soon)</Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                     <AlertDialogHeader>
@@ -268,7 +294,7 @@ export default function ProfilePage() {
         <CardContent className="p-6">
             <AlertDialog>
                 <AlertDialogTrigger asChild>
-                    <Button variant="destructive" className="w-full" disabled={authIsLoading}><LogOut className="mr-2 h-4 w-4" /> Logout</Button>
+                    <Button variant="destructive" className="w-full transition-all duration-300 active:scale-95" disabled={authIsLoading}><LogOut className="mr-2 h-4 w-4" /> Logout</Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                     <AlertDialogHeader>

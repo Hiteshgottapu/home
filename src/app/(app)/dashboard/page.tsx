@@ -16,9 +16,10 @@ import type { DoctorNote, Prescription, UpcomingAppointment } from '@/types';
 import { AppointmentBookingModal } from '@/components/dashboard/AppointmentBookingModal';
 import { UpcomingAppointmentsViewModal } from '@/components/dashboard/UpcomingAppointmentsViewModal';
 import { useToast } from "@/hooks/use-toast";
-import { addMinutes, format, subDays, parseISO } from 'date-fns';
+import { format, parseISO, compareAsc } from 'date-fns';
 import { db } from '@/lib/firebase';
-import { collection, query, orderBy, getDocs, onSnapshot, Unsubscribe, addDoc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, Unsubscribe, addDoc, doc, getDoc, setDoc } from 'firebase/firestore';
+import { Skeleton } from '@/components/ui/skeleton';
 
 
 const mockChartData = [
@@ -49,7 +50,7 @@ const mockAiChatLogs = [
 
 
 export default function DashboardPage() {
-  const { userProfile, firebaseUser, isLoading: authIsLoading } = useAuth();
+  const { userProfile, firebaseUser, isLoading: authIsLoading, healthGoals: userHealthGoals } = useAuth();
   const { toast } = useToast();
   const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false);
   const [isPrescriptionsModalOpen, setIsPrescriptionsModalOpen] = useState(false);
@@ -62,6 +63,7 @@ export default function DashboardPage() {
   const [doctorNotes, setDoctorNotes] = useState<DoctorNote[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
 
+
   useEffect(() => {
     if (!firebaseUser || !db) {
       if (!authIsLoading) setDataLoading(false);
@@ -71,6 +73,7 @@ export default function DashboardPage() {
     console.log("DashboardPage: Setting up Firestore listeners for user:", firebaseUser.uid);
     setDataLoading(true);
     const unsubscribes: Unsubscribe[] = [];
+    
     let initialFetchesCompleted = 0;
     const totalInitialFetches = 3; // Appointments, Prescriptions, Notes
 
@@ -87,13 +90,13 @@ export default function DashboardPage() {
     unsubscribes.push(onSnapshot(appointmentsQuery, (snapshot) => {
       const appts: UpcomingAppointment[] = [];
       snapshot.forEach(doc => appts.push({ id: doc.id, ...doc.data() } as UpcomingAppointment));
-      setUpcomingAppointments(appts);
+      setUpcomingAppointments(appts.sort((a,b) => compareAsc(parseISO(a.dateTime), parseISO(b.dateTime))));
       console.log("DashboardPage: Appointments updated via snapshot. Count:", appts.length);
-      if (dataLoading) checkAllInitialDataLoaded(); // Decrement loading counter only on first snapshot
+      if (dataLoading && initialFetchesCompleted < totalInitialFetches) checkAllInitialDataLoaded();
     }, (error) => {
       console.error("DashboardPage: Error fetching appointments:", error);
-      toast({ title: "Error Fetching Appointments", description: "Could not fetch upcoming appointments. Please try refreshing.", variant: "destructive" });
-      if (dataLoading) checkAllInitialDataLoaded();
+      toast({ title: "Error Fetching Appointments", description: "Could not fetch upcoming appointments.", variant: "destructive" });
+      if (dataLoading && initialFetchesCompleted < totalInitialFetches) checkAllInitialDataLoaded();
     }));
 
     // Fetch Managed Prescriptions
@@ -103,11 +106,11 @@ export default function DashboardPage() {
       snapshot.forEach(doc => scripts.push({ id: doc.id, ...doc.data() } as Prescription));
       setManagedPrescriptions(scripts);
       console.log("DashboardPage: Prescriptions updated via snapshot. Count:", scripts.length);
-      if (dataLoading) checkAllInitialDataLoaded();
+      if (dataLoading && initialFetchesCompleted < totalInitialFetches) checkAllInitialDataLoaded();
     }, (error) => {
       console.error("DashboardPage: Error fetching prescriptions:", error);
-      toast({ title: "Error Fetching Prescriptions", description: "Could not fetch managed prescriptions. Please try refreshing.", variant: "destructive" });
-      if (dataLoading) checkAllInitialDataLoaded();
+      toast({ title: "Error Fetching Prescriptions", description: "Could not fetch managed prescriptions.", variant: "destructive" });
+      if (dataLoading && initialFetchesCompleted < totalInitialFetches) checkAllInitialDataLoaded();
     }));
 
     // Fetch Doctor Notes
@@ -117,29 +120,46 @@ export default function DashboardPage() {
       snapshot.forEach(doc => notes.push({ id: doc.id, ...doc.data() } as DoctorNote));
       setDoctorNotes(notes);
       console.log("DashboardPage: Doctor notes updated via snapshot. Count:", notes.length);
-      if (dataLoading) checkAllInitialDataLoaded();
+      if (dataLoading && initialFetchesCompleted < totalInitialFetches) checkAllInitialDataLoaded();
     }, (error) => {
       console.error("DashboardPage: Error fetching doctor notes:", error);
-      toast({ title: "Error Fetching Doctor Notes", description: "Could not fetch doctor notes. Please try refreshing.", variant: "destructive" });
-      if (dataLoading) checkAllInitialDataLoaded();
+      toast({ title: "Error Fetching Doctor Notes", description: "Could not fetch doctor notes.", variant: "destructive" });
+      if (dataLoading && initialFetchesCompleted < totalInitialFetches) checkAllInitialDataLoaded();
     }));
 
     return () => {
       console.log("DashboardPage: Unsubscribing from Firestore listeners.");
       unsubscribes.forEach(unsub => unsub());
     };
-  }, [firebaseUser, authIsLoading, toast]);
+  }, [firebaseUser, authIsLoading, toast, dataLoading]);
 
 
-  const handleBookingSuccess = (newAppointment: UpcomingAppointment) => {
-    // Firestore onSnapshot will update the upcomingAppointments state,
-    // so no need to manually add it here. We just show a toast.
-    toast({
-      title: "Appointment Confirmed!",
-      description: `Your appointment for ${newAppointment.serviceName} with ${newAppointment.doctorName} on ${format(parseISO(newAppointment.dateTime), 'PPPp')} is booked.`,
-    });
-    setIsAppointmentBookingModalOpen(false); // Close booking modal
-    setIsAppointmentsViewModalOpen(true); // Open view modal to see the new appointment
+  const handleBookingSuccess = async (newAppointment: UpcomingAppointment) => {
+    if (!firebaseUser || !db) {
+        toast({ title: "Booking Error", description: "Could not save appointment. User not found.", variant: "destructive" });
+        return;
+    }
+    try {
+      // The appointment document has already been created by AppointmentBookingModal
+      // Firestore onSnapshot will update the upcomingAppointments state,
+      // so we just show a toast and update view modals.
+      const { id, ...dataToSave } = newAppointment; // id is already part of the object
+      const apptDocRef = doc(db, `users/${firebaseUser.uid}/appointments`, id);
+      
+      // We can re-set it or update if there are any fields that the modal might not have
+      // but for now, we assume the modal saved it correctly.
+      // await setDoc(apptDocRef, dataToSave, { merge: true }); // Or addDoc if modal doesn't create it
+      
+      toast({
+        title: "Appointment Confirmed!",
+        description: `Your appointment for ${newAppointment.serviceName} with ${newAppointment.doctorName} on ${format(parseISO(newAppointment.dateTime), 'PPPp')} is booked.`,
+      });
+      setIsAppointmentBookingModalOpen(false);
+      setIsAppointmentsViewModalOpen(true);
+    } catch (error) {
+        console.error("Error ensuring appointment save on dashboard:", error);
+        toast({ title: "Booking Issue", description: "There was an issue finalizing the appointment display. Please refresh.", variant: "destructive"});
+    }
   };
 
   const handleOpenBookingModal = () => {
@@ -147,38 +167,53 @@ export default function DashboardPage() {
     setIsAppointmentBookingModalOpen(true);
   };
 
-  if (authIsLoading || (dataLoading && !firebaseUser)) { // Show loader if auth is loading or data is loading AND no firebase user yet
+
+  if (authIsLoading || (dataLoading && !firebaseUser)) {
     return (
-      <div className="flex h-[calc(100vh-10rem)] items-center justify-center">
-        <Loader2 className="h-16 w-16 animate-spin text-primary" />
-        <p className="ml-3 text-muted-foreground">Loading dashboard...</p>
+      <div className="container mx-auto py-2 px-0 md:px-4">
+         <div className="mb-8">
+            <Skeleton className="h-10 w-1/2 mb-2" />
+            <Skeleton className="h-4 w-3/4" />
+        </div>
+        <div className="mb-6">
+            <Skeleton className="h-24 w-full rounded-lg" />
+        </div>
+        <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+            {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-32 rounded-lg" />)}
+        </div>
+        <Skeleton className="h-12 w-1/3 mb-4" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20 rounded-lg" />)}
+        </div>
+        <Skeleton className="h-12 w-1/3 mb-4" />
+        <div className="grid md:grid-cols-2 gap-6">
+            <Skeleton className="h-80 rounded-lg" />
+            <Skeleton className="h-80 rounded-lg" />
+        </div>
       </div>
     );
   }
   
-  // After auth is done, if data is still loading for an authenticated user
-  if (firebaseUser && dataLoading) {
-     return (
+  if (!userProfile && !authIsLoading) {
+    return (
       <div className="flex h-[calc(100vh-10rem)] items-center justify-center">
         <Loader2 className="h-16 w-16 animate-spin text-primary" />
-        <p className="ml-3 text-muted-foreground">Loading dashboard data...</p>
+        <p className="ml-3 text-muted-foreground">Loading user profile...</p>
       </div>
     );
   }
-
-
   if (!userProfile) {
-    return (
+     return (
       <div className="flex items-center justify-center h-full">
-        <p>User profile not found or still loading. Please try logging in again or wait a moment.</p>
+        <p>User profile not found. Please try logging in again.</p>
       </div>
     );
   }
 
-  const activeGoalsCount = userProfile.healthGoals.filter(g => g.status === 'in_progress').length;
-  const prescriptionsCount = managedPrescriptions.length; // From Firestore
-  const interactionLogsCount = mockAiChatLogs.length + doctorNotes.length; // Doctor notes from Firestore
-  const currentUpcomingAppointmentsCount = upcomingAppointments.length; // From Firestore
+  const activeGoalsCount = userHealthGoals.filter(g => g.status === 'in_progress').length;
+  const prescriptionsCount = managedPrescriptions.length;
+  const interactionLogsCount = mockAiChatLogs.length + doctorNotes.length;
+  const currentUpcomingAppointmentsCount = upcomingAppointments.length;
 
 
   return (
@@ -191,7 +226,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="mb-6">
-        <Card className="bg-gradient-to-br from-primary/10 to-accent/10 border-primary/20 shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-[1.02]">
+        <Card className="bg-gradient-to-br from-primary/10 to-accent/10 border-primary/20 shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out transform hover:scale-[1.02] active:scale-[1.01]">
           <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
             <div className="space-y-1">
               <CardTitle className="text-lg font-semibold text-primary">Today's Focus</CardTitle>
@@ -203,14 +238,14 @@ export default function DashboardPage() {
             <p className="text-sm text-foreground">Aim for 8 glasses of water. Small sips throughout the day make a big difference.</p>
           </CardContent>
           <CardFooter>
-            <Button variant="ghost" size="sm" className="text-xs text-primary hover:bg-primary/10">Dismiss</Button>
+            <Button variant="ghost" size="sm" className="text-xs text-primary hover:bg-primary/10 active:bg-primary/15">Dismiss</Button>
           </CardFooter>
         </Card>
       </div>
 
       <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <Card
-          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 cursor-pointer"
+          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 cursor-pointer"
           onClick={() => setIsTaskMenuOpen(true)}
           role="button"
           tabIndex={0}
@@ -227,7 +262,7 @@ export default function DashboardPage() {
         </Card>
 
         <Card
-          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 cursor-pointer"
+          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 cursor-pointer"
           onClick={() => setIsPrescriptionsModalOpen(true)}
           role="button"
           tabIndex={0}
@@ -244,7 +279,7 @@ export default function DashboardPage() {
         </Card>
 
         <Card
-          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 cursor-pointer"
+          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 cursor-pointer"
           onClick={() => setIsInteractionLogModalOpen(true)}
           role="button"
           tabIndex={0}
@@ -261,7 +296,7 @@ export default function DashboardPage() {
         </Card>
 
         <Card
-          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 cursor-pointer"
+          className="shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105 active:scale-100 cursor-pointer"
           onClick={() => setIsAppointmentsViewModalOpen(true)}
           role="button"
           tabIndex={0}
@@ -282,25 +317,25 @@ export default function DashboardPage() {
         <h2 className="text-xl font-semibold mb-4 text-foreground">Quick Actions</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Link href="/insights#upload" passHref>
-            <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-md transition-shadow duration-300">
+            <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-md transition-all duration-300 active:scale-95 active:shadow-inner">
               <FilePlus className="h-6 w-6 text-primary" />
               Upload Prescription
             </Button>
           </Link>
           <Link href="/ai-assistant" passHref>
-            <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-md transition-shadow duration-300">
+            <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-md transition-all duration-300 active:scale-95 active:shadow-inner">
               <Activity className="h-6 w-6 text-accent" />
               Analyze Symptoms
             </Button>
           </Link>
            <Link href="/profile#goals" passHref>
-            <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-md transition-shadow duration-300">
+            <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-md transition-all duration-300 active:scale-95 active:shadow-inner">
               <ListChecks className="h-6 w-6 text-primary" />
               View Health Goals
             </Button>
           </Link>
           <Link href="/profile#privacy" passHref>
-           <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-md transition-shadow duration-300">
+           <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-md transition-all duration-300 active:scale-95 active:shadow-inner">
               <ShieldCheck className="h-6 w-6 text-muted-foreground" />
               Data & Privacy
             </Button>
@@ -352,20 +387,23 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {userProfile.healthGoals.length === 0 && managedPrescriptions.length === 0 && upcomingAppointments.length === 0 && !dataLoading && (
+      {userHealthGoals.length === 0 && managedPrescriptions.length === 0 && upcomingAppointments.length === 0 && !dataLoading && !authIsLoading && (
          <section className="mt-12 text-center">
             <Card className="max-w-lg mx-auto p-8 bg-card shadow-lg">
                 <BarChartHorizontalBig data-ai-hint="health chart" className="h-16 w-16 text-primary mx-auto mb-4" />
                 <h2 className="text-2xl font-semibold mb-2 text-foreground">Welcome to VitaLog Pro!</h2>
                 <p className="text-muted-foreground mb-6">
-                    Your personal health dashboard is ready. Upload your first prescription, check your symptoms, or book an appointment to see personalized insights and start your journey to proactive wellness.
+                    Your personal health dashboard is ready. Upload your first prescription, set a health goal, or book an appointment to see personalized insights and start your journey to proactive wellness.
                 </p>
-                <div className="flex gap-4 justify-center">
-                    <Button asChild size="lg">
+                <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                    <Button asChild size="lg" className="transition-all duration-300 active:scale-95">
                         <Link href="/insights#upload">Upload Prescription</Link>
                     </Button>
-                     <Button variant="outline" size="lg" onClick={() => setIsAppointmentsViewModalOpen(true)}>
+                     <Button variant="outline" size="lg" onClick={() => setIsAppointmentsViewModalOpen(true)} className="transition-all duration-300 active:scale-95">
                         Book Appointment
+                    </Button>
+                     <Button variant="outline" size="lg" onClick={() => setIsTaskMenuOpen(true)} className="transition-all duration-300 active:scale-95">
+                        Set a Health Goal
                     </Button>
                 </div>
             </Card>
