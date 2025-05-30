@@ -19,73 +19,84 @@ export async function searchPharmaciesAction(searchTerm: string): Promise<Action
   if (searchTerm.toLowerCase().includes("errorplease")) {
     return { error: "Simulated server error: Could not connect to pharmacy aggregators." };
   }
-  if (searchTerm.toLowerCase().includes("notfound")) {
-    return { data: [] }; // Simulate no results
+  if (searchTerm.toLowerCase().includes("notfound") && !searchTerm.toLowerCase().includes("notfoundgeneric")) {
+    return { data: [] }; // Simulate no results unless it's the generic notfound
   }
 
   // Mock data - In a real application, this would come from web scraping
   const mockResults: ScrapedMedicineResult[] = [
     {
       pharmacyName: "Wellness Pharmacy Online",
-      drugName: `${searchTerm} 500mg Tablets`,
+      drugName: `${searchTerm} 500mg Tablets (Pack of 30)`,
       price: "12.99",
       originalPrice: "15.50",
       discount: "16% off",
       availability: "In Stock",
-      addToCartLink: "#mock-wellness", // Replace with actual links
-      imageUrl: "https://placehold.co/100x100.png?text=Med1"
+      addToCartLink: "#mock-wellness",
+      imageUrl: "https://placehold.co/150x150.png?text=Med1"
     },
     {
       pharmacyName: "HealthFirst Drugs",
-      drugName: `${searchTerm} 20mg Capsules`,
+      drugName: `${searchTerm} 20mg Capsules (60 Capsules)`,
       price: "25.49",
       availability: "In Stock - Ships in 24h",
       addToCartLink: "#mock-healthfirst",
-      imageUrl: "https://placehold.co/100x100.png?text=Med2"
+      imageUrl: "https://placehold.co/150x150.png?text=Med2"
     },
     {
       pharmacyName: "City Chemist Direct",
-      drugName: `${searchTerm} Syrup 100ml`,
+      drugName: `${searchTerm} Syrup 100ml Bottle`,
       price: "8.75",
       availability: "Low Stock",
       addToCartLink: "#mock-citychemist",
-      imageUrl: "https://placehold.co/100x100.png?text=Med3"
+      imageUrl: "https://placehold.co/150x150.png?text=Med3"
     },
     {
       pharmacyName: "TeleMeds Rx",
-      drugName: `${searchTerm} Ointment 30g`,
+      drugName: `${searchTerm} Ointment 30g Tube`,
       price: "18.00",
       originalPrice: "20.00",
       discount: "10% off",
       availability: "Out of Stock",
-      addToCartLink: "#", // No link if out of stock perhaps
-      imageUrl: "https://placehold.co/100x100.png?text=Med4"
+      addToCartLink: "#",
+      imageUrl: "https://placehold.co/150x150.png?text=Med4"
     },
-     {
+    {
       pharmacyName: "QuickMeds Global",
-      drugName: `${searchTerm} Extended Release 100mg`,
+      drugName: `${searchTerm} Extended Release 100mg (Pack of 10)`,
       price: "35.99",
       availability: "In Stock",
       addToCartLink: "#mock-quickmeds",
-      imageUrl: "https://placehold.co/100x100.png?text=Med5"
+      imageUrl: "https://placehold.co/150x150.png?text=Med5"
+    },
+    {
+      pharmacyName: "Affordable Meds Co.",
+      drugName: `${searchTerm} 10mg Generic (90 Tablets)`,
+      price: "9.95",
+      availability: "In Stock",
+      addToCartLink: "#mock-affordable",
+      imageUrl: "https://placehold.co/150x150.png?text=Med6"
     },
   ];
 
-  // Simulate that not all pharmacies will have every drug
-  const filteredMockResults = mockResults.filter(() => Math.random() > 0.3); // Randomly include results
+  // Simulate that not all pharmacies will have every drug, or different variations
+  let filteredMockResults = mockResults;
+  if (!searchTerm.toLowerCase().includes("all")) { // A keyword to show all mock items
+      filteredMockResults = mockResults.filter(() => Math.random() > 0.4); 
+  }
+
 
   if (filteredMockResults.length === 0 && !searchTerm.toLowerCase().includes("notfound")) {
      // If random filter made it empty, provide at least one generic result if not a specific "notfound" test
       return { data: [{
         pharmacyName: "General Pharma Listings",
-        drugName: `${searchTerm} (Generic Variant)`,
+        drugName: `${searchTerm} (Generic Variant - Check Availability)`,
         price: (Math.random() * 30 + 5).toFixed(2), // Random price
         availability: "Check Availability",
         addToCartLink: "#",
-        imageUrl: "https://placehold.co/100x100.png?text=Generic"
+        imageUrl: "https://placehold.co/150x150.png?text=Generic"
       }]};
   }
-
 
   return { data: filteredMockResults };
 }
