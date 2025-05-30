@@ -119,7 +119,7 @@ export default function MedicalSearchPage() {
 
           {!isLoading && searched && results.length === 0 && !error && (
             <div className="text-center py-16 px-6 border-2 border-dashed border-border rounded-lg bg-card flex flex-col items-center justify-center">
-              <SearchX size={64} className="mx-auto mb-6 text-muted-foreground opacity-60" data-ai-hint="magnifying glass cross" />
+              <SearchX size={64} className="mx-auto mb-6 text-muted-foreground opacity-60" data-ai-hint="magnifying glass document" />
               <h3 className="text-2xl font-semibold text-foreground mb-3">No Results for "{searchTerm}"</h3>
               <p className="text-base text-muted-foreground max-w-md mx-auto">
                 {searchTerm.trim() === '' ? "Please type a medicine name into the search bar above to find prices." : "We couldn't find any listings. Try checking the spelling or searching for a different medicine name. If searching by brand, try the generic name, or vice-versa."}
@@ -128,7 +128,7 @@ export default function MedicalSearchPage() {
           )}
 
           {!isLoading && results.length > 0 && (
-            <ScrollArea className="h-[60vh] max-h-[700px] pr-3 -mr-3"> {/* Negative margin to compensate for scrollbar padding */}
+            <ScrollArea className="h-[60vh] max-h-[700px] pr-3 -mr-3">
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
                 {results.map((result, index) => {
                   const availabilityInfo = getAvailabilityInfo(result.availability);
@@ -152,14 +152,14 @@ export default function MedicalSearchPage() {
                           {result.drugName}
                         </CardTitle>
                         <CardDescription className="text-xs text-muted-foreground flex items-center gap-1.5">
-                          <Store size={14}/>From: <span className="font-medium">{result.pharmacyName}</span>
+                          <Store size={14}/>Platform: <span className="font-medium">{result.pharmacyName}</span>
                         </CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-2.5 flex-grow pt-1 pb-3">
                         <div className="flex items-baseline gap-2">
                           <p className="text-3xl font-bold text-primary flex items-center">
                             <DollarSign className="h-6 w-6 mr-0.5" />
-                            {result.price}
+                            {result.price.replace('₹', '')} {/* Assuming price includes ₹ */}
                           </p>
                           {result.originalPrice && (
                             <p className="text-sm text-muted-foreground line-through">

@@ -8,95 +8,81 @@ interface ActionResult {
   error?: string;
 }
 
-// MOCK IMPLEMENTATION - Replace with actual web scraping logic
+const PHARMACY_PLATFORMS = ["Truemeds", "PharmEasy", "Tata 1mg", "Netmeds", "Apollo Pharmacy", "Wellness Forever"];
+
+// MOCK IMPLEMENTATION - Simulates scraping results
 export async function searchPharmaciesAction(searchTerm: string): Promise<ActionResult> {
-  console.log(`Server Action: Searching pharmacies for "${searchTerm}" (MOCK)`);
+  console.log(`Server Action: Simulating pharmacy search for "${searchTerm}"`);
 
-  // Simulate network delay
-  await new Promise(resolve => setTimeout(resolve, 1500));
+  await new Promise(resolve => setTimeout(resolve, 1200)); // Simulate network delay
 
-  // Simulate potential errors for specific search terms
   if (searchTerm.toLowerCase().includes("errorplease")) {
     return { error: "Simulated server error: Could not connect to pharmacy aggregators." };
   }
-  if (searchTerm.toLowerCase().includes("notfound") && !searchTerm.toLowerCase().includes("notfoundgeneric")) {
-    return { data: [] }; // Simulate no results unless it's the generic notfound
+  if (searchTerm.toLowerCase() === "notfound" || searchTerm.trim() === "") {
+    return { data: [] };
   }
 
-  // Mock data - In a real application, this would come from web scraping
-  const mockResults: ScrapedMedicineResult[] = [
-    {
-      pharmacyName: "Wellness Pharmacy Online",
-      drugName: `${searchTerm} 500mg Tablets (Pack of 30)`,
-      price: "12.99",
-      originalPrice: "15.50",
-      discount: "16% off",
-      availability: "In Stock",
-      addToCartLink: "#mock-wellness",
-      imageUrl: "https://placehold.co/150x150.png?text=Med1"
-    },
-    {
-      pharmacyName: "HealthFirst Drugs",
-      drugName: `${searchTerm} 20mg Capsules (60 Capsules)`,
-      price: "25.49",
-      availability: "In Stock - Ships in 24h",
-      addToCartLink: "#mock-healthfirst",
-      imageUrl: "https://placehold.co/150x150.png?text=Med2"
-    },
-    {
-      pharmacyName: "City Chemist Direct",
-      drugName: `${searchTerm} Syrup 100ml Bottle`,
-      price: "8.75",
-      availability: "Low Stock",
-      addToCartLink: "#mock-citychemist",
-      imageUrl: "https://placehold.co/150x150.png?text=Med3"
-    },
-    {
-      pharmacyName: "TeleMeds Rx",
-      drugName: `${searchTerm} Ointment 30g Tube`,
-      price: "18.00",
-      originalPrice: "20.00",
-      discount: "10% off",
-      availability: "Out of Stock",
-      addToCartLink: "#",
-      imageUrl: "https://placehold.co/150x150.png?text=Med4"
-    },
-    {
-      pharmacyName: "QuickMeds Global",
-      drugName: `${searchTerm} Extended Release 100mg (Pack of 10)`,
-      price: "35.99",
-      availability: "In Stock",
-      addToCartLink: "#mock-quickmeds",
-      imageUrl: "https://placehold.co/150x150.png?text=Med5"
-    },
-    {
-      pharmacyName: "Affordable Meds Co.",
-      drugName: `${searchTerm} 10mg Generic (90 Tablets)`,
-      price: "9.95",
-      availability: "In Stock",
-      addToCartLink: "#mock-affordable",
-      imageUrl: "https://placehold.co/150x150.png?text=Med6"
-    },
-  ];
+  const baseDrugName = searchTerm.charAt(0).toUpperCase() + searchTerm.slice(1).toLowerCase();
+  const mockResults: ScrapedMedicineResult[] = [];
 
-  // Simulate that not all pharmacies will have every drug, or different variations
-  let filteredMockResults = mockResults;
-  if (!searchTerm.toLowerCase().includes("all")) { // A keyword to show all mock items
-      filteredMockResults = mockResults.filter(() => Math.random() > 0.4); 
-  }
+  const randomInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 
+  // Generate a few results for each platform, or randomly skip some
+  PHARMACY_PLATFORMS.forEach(platform => {
+    if (Math.random() > 0.3) { // Simulate platform not always having the drug or being scraped
+      const numResultsForPlatform = randomInt(1, 2); // 1 or 2 results per "successful" platform
 
-  if (filteredMockResults.length === 0 && !searchTerm.toLowerCase().includes("notfound")) {
-     // If random filter made it empty, provide at least one generic result if not a specific "notfound" test
-      return { data: [{
-        pharmacyName: "General Pharma Listings",
-        drugName: `${searchTerm} (Generic Variant - Check Availability)`,
-        price: (Math.random() * 30 + 5).toFixed(2), // Random price
+      for (let i = 0; i < numResultsForPlatform; i++) {
+        const strengthVariant = ["10mg", "20mg", "500mg", "250mg", "50mg/ml Syrup", "1% Ointment"];
+        const packSizeVariant = ["Pack of 10", "Bottle of 100ml", "30 Capsules", "15 Tablets", "Tube of 30g"];
+        
+        const currentStrength = strengthVariant[randomInt(0, strengthVariant.length - 1)];
+        const currentPackSize = packSizeVariant[randomInt(0, packSizeVariant.length - 1)];
+        const drugFullName = `${baseDrugName} ${currentStrength} (${currentPackSize})`;
+
+        const price = (randomInt(50, 5000) / 100).toFixed(2);
+        const originalPriceNum = parseFloat(price) * (1 + randomInt(10, 40) / 100);
+        const originalPrice = Math.random() > 0.4 ? originalPriceNum.toFixed(2) : undefined;
+        
+        let discount: string | undefined;
+        if (originalPrice) {
+          discount = `${Math.round(((originalPriceNum - parseFloat(price)) / originalPriceNum) * 100)}% off`;
+        } else if (Math.random() < 0.2) {
+          discount = `${randomInt(5, 25)}% off`; // Flat discount
+        }
+
+        const availabilityStates = ["In Stock", "In Stock - Ships in 24h", "Low Stock", "Out of Stock", "Available on Order"];
+        const availability = availabilityStates[randomInt(0, availabilityStates.length - 1)];
+        
+        const isOutOfStock = availability.toLowerCase().includes('out of stock');
+        const addToCartLink = isOutOfStock ? "#" : `https://mock.${platform.toLowerCase().replace(/\s+/g, '')}.com/product/${baseDrugName.toLowerCase()}-${currentStrength.split(' ')[0]}?id=${randomInt(1000,9999)}`;
+
+        mockResults.push({
+          pharmacyName: platform,
+          drugName: drugFullName,
+          price: `₹${price}`,
+          originalPrice: originalPrice ? `₹${originalPrice}` : undefined,
+          discount,
+          availability,
+          addToCartLink,
+          imageUrl: `https://placehold.co/150x150.png?text=${baseDrugName.substring(0,3)}`, // Keep placeholder generic
+        });
+      }
+    }
+  });
+
+  if (mockResults.length === 0 && !searchTerm.toLowerCase().includes("emptytest")) {
+     // If random filter made it empty, provide at least one generic result if not a specific "emptytest"
+      mockResults.push({
+        pharmacyName: "Generic Pharma Listings",
+        drugName: `${baseDrugName} (Generic Variant - Check Availability)`,
+        price: `₹${(Math.random() * 30 + 5).toFixed(2)}`,
         availability: "Check Availability",
         addToCartLink: "#",
-        imageUrl: "https://placehold.co/150x150.png?text=Generic"
-      }]};
+        imageUrl: `https://placehold.co/150x150.png?text=Gen`
+      });
   }
 
-  return { data: filteredMockResults };
+  return { data: mockResults };
 }
