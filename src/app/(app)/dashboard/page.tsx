@@ -50,7 +50,7 @@ const mockAiChatLogs = [
 
 
 export default function DashboardPage() {
-  const { userProfile, firebaseUser, isLoading: authIsLoading, healthGoals: userHealthGoals } = useAuth();
+  const { userProfile, firebaseUser, isLoading: authIsLoading, healthGoals } = useAuth();
   const { toast } = useToast();
   const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false);
   const [isPrescriptionsModalOpen, setIsPrescriptionsModalOpen] = useState(false);
@@ -140,25 +140,19 @@ export default function DashboardPage() {
         return;
     }
     try {
-      // The appointment document has already been created by AppointmentBookingModal
-      // Firestore onSnapshot will update the upcomingAppointments state,
-      // so we just show a toast and update view modals.
-      const { id, ...dataToSave } = newAppointment; // id is already part of the object
-      const apptDocRef = doc(db, `users/${firebaseUser.uid}/appointments`, id);
-      
-      // We can re-set it or update if there are any fields that the modal might not have
-      // but for now, we assume the modal saved it correctly.
-      // await setDoc(apptDocRef, dataToSave, { merge: true }); // Or addDoc if modal doesn't create it
+      // Firestore onSnapshot for appointments will update the upcomingAppointments state,
+      // so we primarily just show a toast and ensure modals are in the correct state.
+      // The new appointment object is already created by AppointmentBookingModal and saved to Firestore there.
       
       toast({
         title: "Appointment Confirmed!",
         description: `Your appointment for ${newAppointment.serviceName} with ${newAppointment.doctorName} on ${format(parseISO(newAppointment.dateTime), 'PPPp')} is booked.`,
       });
       setIsAppointmentBookingModalOpen(false);
-      setIsAppointmentsViewModalOpen(true);
+      setIsAppointmentsViewModalOpen(true); // Show the view modal with the updated list
     } catch (error) {
-        console.error("Error ensuring appointment save on dashboard:", error);
-        toast({ title: "Booking Issue", description: "There was an issue finalizing the appointment display. Please refresh.", variant: "destructive"});
+        console.error("Error reacting to appointment booking success on dashboard:", error);
+        toast({ title: "Booking Display Issue", description: "There was an issue updating the appointment display. Please refresh if needed.", variant: "destructive"});
     }
   };
 
@@ -210,7 +204,7 @@ export default function DashboardPage() {
     );
   }
 
-  const activeGoalsCount = userHealthGoals.filter(g => g.status === 'in_progress').length;
+  const activeGoalsCount = (healthGoals || []).filter(g => g.status === 'in_progress').length;
   const prescriptionsCount = managedPrescriptions.length;
   const interactionLogsCount = mockAiChatLogs.length + doctorNotes.length;
   const currentUpcomingAppointmentsCount = upcomingAppointments.length;
@@ -387,7 +381,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {userHealthGoals.length === 0 && managedPrescriptions.length === 0 && upcomingAppointments.length === 0 && !dataLoading && !authIsLoading && (
+      {healthGoals.length === 0 && managedPrescriptions.length === 0 && upcomingAppointments.length === 0 && !dataLoading && !authIsLoading && (
          <section className="mt-12 text-center">
             <Card className="max-w-lg mx-auto p-8 bg-card shadow-lg">
                 <BarChartHorizontalBig data-ai-hint="health chart" className="h-16 w-16 text-primary mx-auto mb-4" />
@@ -436,3 +430,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+
