@@ -311,25 +311,25 @@ export default function DashboardPage() {
         <h2 className="text-xl font-semibold mb-4 text-foreground">Quick Actions</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Link href="/insights#upload" passHref>
-            <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-md transition-all duration-300 active:scale-95 active:shadow-inner">
+            <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-lg hover:border-primary/40 hover:-translate-y-0.5 active:scale-95 transition-all duration-300">
               <FilePlus className="h-6 w-6 text-primary" />
               Upload Prescription
             </Button>
           </Link>
           <Link href="/ai-assistant" passHref>
-            <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-md transition-all duration-300 active:scale-95 active:shadow-inner">
+            <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-lg hover:border-primary/40 hover:-translate-y-0.5 active:scale-95 transition-all duration-300">
               <Activity className="h-6 w-6 text-accent" />
               Analyze Symptoms
             </Button>
           </Link>
            <Link href="/profile#goals" passHref>
-            <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-md transition-all duration-300 active:scale-95 active:shadow-inner">
+            <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-lg hover:border-primary/40 hover:-translate-y-0.5 active:scale-95 transition-all duration-300">
               <ListChecks className="h-6 w-6 text-primary" />
               View Health Goals
             </Button>
           </Link>
           <Link href="/profile#privacy" passHref>
-           <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-md transition-all duration-300 active:scale-95 active:shadow-inner">
+           <Button variant="outline" className="w-full h-20 flex flex-col items-center justify-center gap-1 text-sm shadow-sm hover:shadow-lg hover:border-primary/40 hover:-translate-y-0.5 active:scale-95 transition-all duration-300">
               <ShieldCheck className="h-6 w-6 text-muted-foreground" />
               Data & Privacy
             </Button>
