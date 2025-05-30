@@ -1,4 +1,5 @@
 
+
 export interface MedicineInfo {
   overview: string;
   commonUses: string[];
@@ -96,5 +97,16 @@ export interface DoctorNote {
   appointmentId?: string;
   tags?: string[];
   userId?: string; // Added for potential direct queries
+}
+
+export interface ScrapedMedicineResult {
+  pharmacyName: string;
+  drugName: string;
+  price: string;
+  originalPrice?: string;
+  discount?: string;
+  availability?: string;
+  addToCartLink?: string;
+  imageUrl?: string; // Optional image URL for the drug listing
 }
 

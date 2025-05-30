@@ -1,6 +1,6 @@
 
 import type { LucideIcon } from 'lucide-react';
-import { LayoutDashboard, BotMessageSquare, UserCog, FileScan } from 'lucide-react'; // Removed MessageCircleQuestion
+import { LayoutDashboard, BotMessageSquare, UserCog, FileScan, ShoppingBag } from 'lucide-react';
 
 export interface NavItem {
   href: string;
@@ -13,7 +13,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/script-recognizer', label: 'Script Reader', icon: FileScan },
   { href: '/health-assistant', label: 'AI Health Companion', icon: BotMessageSquare },
-  // { href: '/openai-chat', label: 'OpenAI Chat', icon: MessageCircleQuestion }, // Removed this item
+  { href: '/medical-search', label: 'Medical Search', icon: ShoppingBag },
   { href: '/profile', label: 'Profile', icon: UserCog },
 ];
 
