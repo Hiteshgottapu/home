@@ -5,13 +5,12 @@ import { useState, FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Loader2, Search, ExternalLink, ShoppingCart, AlertTriangle, DollarSign, Pill, PackageCheck, PackageX, Store, SearchX } from 'lucide-react';
+import { Loader2, Search, ExternalLink, ShoppingCart, AlertTriangle, DollarSign, Pill, Store, SearchX } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { ScrapedMedicineResult } from '@/types';
 import { searchPharmaciesAction } from './actions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import Image from 'next/image';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
 export default function MedicalSearchPage() {
@@ -51,15 +50,6 @@ export default function MedicalSearchPage() {
     }
   };
 
-  const getAvailabilityInfo = (availability?: string) => {
-    if (!availability || availability === "Info not available") return { text: 'Availability N/A', color: 'text-muted-foreground', Icon: PackageX };
-    const lowerAvailability = availability.toLowerCase();
-    if (lowerAvailability.includes('in stock')) return { text: availability, color: 'text-green-600 dark:text-green-400', Icon: PackageCheck };
-    if (lowerAvailability.includes('low stock')) return { text: availability, color: 'text-amber-600 dark:text-amber-400', Icon: PackageCheck };
-    if (lowerAvailability.includes('out of stock')) return { text: availability, color: 'text-red-600 dark:text-red-400', Icon: PackageX };
-    return { text: availability, color: 'text-muted-foreground', Icon: PackageX }; 
-  };
-
   return (
     <div className="container mx-auto py-2 px-0 md:px-4 space-y-8">
       <Card className="shadow-2xl border-border bg-card">
@@ -78,7 +68,7 @@ export default function MedicalSearchPage() {
             <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
             <AlertTitle className="font-semibold">Important Notice</AlertTitle>
             <AlertDescription className="text-xs">
-              This feature attempts to scrape live data from pharmacy websites. Prices, availability, and product links are subject to real-time changes and accuracy is not guaranteed. This tool is for informational purposes only and does not endorse any specific pharmacy or medication. Listings may be incomplete or change without notice. Always verify details directly with the pharmacy.
+              This feature attempts to scrape live data from pharmacy websites. Prices, availability, and product links are subject to real-time changes and accuracy is not guaranteed. This tool is for informational purposes only and does not endorse any specific pharmacy or medication. Listings may be incomplete or change without notice. Always verify details directly with the pharmacy. Class selectors for scraping may become outdated, leading to missing or incorrect data.
             </AlertDescription>
           </Alert>
 
@@ -119,7 +109,7 @@ export default function MedicalSearchPage() {
               <SearchX size={64} className="mx-auto mb-6 text-muted-foreground opacity-60" data-ai-hint="magnifying glass document" />
               <h3 className="text-2xl font-semibold text-foreground mb-3">No Results for "{searchTerm}"</h3>
               <p className="text-base text-muted-foreground max-w-md mx-auto">
-                {searchTerm.trim() === '' ? "Please type a medicine name into the search bar above to find prices." : "We couldn't find any listings for this medicine. Try checking the spelling, using a more generic name, or the medicine might not be available on the searched platforms."}
+                {searchTerm.trim() === '' ? "Please type a medicine name into the search bar above to find prices." : "We couldn't find any listings for this medicine. Try checking the spelling, using a more generic name, or the medicine might not be available on the searched platforms (or selectors might be outdated)."}
               </p>
             </div>
           )}
@@ -128,10 +118,8 @@ export default function MedicalSearchPage() {
             <ScrollArea className="h-[60vh] max-h-[700px] pr-3 -mr-3">
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
                 {results.map((result, index) => {
-                  const availabilityInfo = getAvailabilityInfo(result.availability);
-                  const isOutOfStock = result.availability?.toLowerCase().includes('out of stock') || result.availability === "Info not available";
                   const priceDisplay = result.price.replace(/[^0-9.,]/g, '').trim() || "N/A";
-                  const canVisitPharmacy = result.addToCartLink && result.addToCartLink !== "#" && !result.addToCartLink.includes('search') && !result.addToCartLink.includes(searchTerm);
+                  const canVisitPharmacy = result.addToCartLink && result.addToCartLink !== "#" && !result.addToCartLink.includes('search?') && !result.addToCartLink.includes(encodeURIComponent(searchTerm));
 
 
                   return (
@@ -162,32 +150,19 @@ export default function MedicalSearchPage() {
                             <DollarSign className="h-6 w-6 mr-0.5" />
                             {priceDisplay}
                           </p>
-                          {result.originalPrice && (
-                            <p className="text-sm text-muted-foreground line-through">
-                              {result.originalPrice}
-                            </p>
-                          )}
                         </div>
-                        {result.discount && (
-                          <Badge variant="destructive" className="text-xs font-semibold">
-                            {result.discount}
-                          </Badge>
-                        )}
-                        <p className={cn("text-sm font-medium flex items-center gap-1.5", availabilityInfo.color)}>
-                            <availabilityInfo.Icon size={16} /> {availabilityInfo.text}
-                        </p>
                       </CardContent>
                       <CardFooter className="mt-auto pt-3 pb-4">
                         <Button 
                             asChild 
-                            variant={!canVisitPharmacy || isOutOfStock ? "outline" : "default"} 
-                            className={cn("w-full text-sm py-3 transition-all duration-200 active:scale-95", (!canVisitPharmacy || isOutOfStock) && "border-muted-foreground/50 text-muted-foreground hover:bg-muted/20 dark:hover:bg-muted/40")}
-                            disabled={!canVisitPharmacy || isOutOfStock}
+                            variant={!canVisitPharmacy ? "outline" : "default"} 
+                            className={cn("w-full text-sm py-3 transition-all duration-200 active:scale-95", (!canVisitPharmacy) && "border-muted-foreground/50 text-muted-foreground hover:bg-muted/20 dark:hover:bg-muted/40")}
+                            disabled={!canVisitPharmacy}
                         >
-                          <a href={canVisitPharmacy && !isOutOfStock ? result.addToCartLink : undefined} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center">
-                            {isOutOfStock ? <PackageX className="mr-2 h-4 w-4"/> : <ShoppingCart className="mr-2 h-4 w-4" />}
-                            {isOutOfStock ? 'Out of Stock' : (canVisitPharmacy ? 'Go to Pharmacy' : 'Link N/A')}
-                            {canVisitPharmacy && !isOutOfStock && <ExternalLink className="ml-auto h-3.5 w-3.5 opacity-70" />}
+                          <a href={canVisitPharmacy ? result.addToCartLink : undefined} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center">
+                            <ShoppingCart className="mr-2 h-4 w-4" />
+                            {canVisitPharmacy ? 'Go to Pharmacy' : 'Link N/A'}
+                            {canVisitPharmacy && <ExternalLink className="ml-auto h-3.5 w-3.5 opacity-70" />}
                           </a>
                         </Button>
                       </CardFooter>

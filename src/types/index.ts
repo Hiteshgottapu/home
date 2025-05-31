@@ -103,9 +103,7 @@ export interface ScrapedMedicineResult {
   pharmacyName: string;      // e.g., "PharmEasy"
   drugName: string;          // e.g., "Paracetamol 500mg Tablet"
   price: string;             // e.g., "₹20.50"
-  originalPrice?: string;    // e.g., "₹25.00" (optional)
-  discount?: string;         // e.g., "18% off" (optional)
-  availability?: string;     // e.g., "In Stock", "Out of Stock" (optional)
   addToCartLink?: string;    // URL to the product page or add to cart (optional)
   imageUrl?: string;         // URL of the medicine image (optional)
 }
+
