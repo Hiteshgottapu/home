@@ -12,8 +12,8 @@ interface PlatformConfig {
   urlTemplate: string;
   nameClass: string;
   priceClass: string;
-  linkSelector?: string;
-  linkBaseUrl?: string;
+  linkSelector?: string; // Optional: CSS selector for the product link element
+  linkBaseUrl?: string;  // Optional: Base URL for resolving relative links
   enabled: boolean;
 }
 
@@ -59,12 +59,18 @@ function sleep(ms: number) {
 
 function getCleanPrice(priceText?: string): string {
     if (!priceText) return "N/A";
+    // Remove currency symbols (₹, Rs.), commas, and leading/trailing whitespace.
+    // Keep the decimal point.
     return priceText.replace(/[₹,Rs.\s]/gi, '').trim();
 }
 
 async function scrapePlatform(platformName: string, medicineName: string, config: PlatformConfig, attempt = 1): Promise<ScrapedMedicineResult[]> {
   if (!config || !config.enabled) {
     console.log(`Skipping disabled or misconfigured platform: ${platformName}`);
+    return [];
+  }
+  if (!config.nameClass || !config.priceClass) {
+    console.warn(`Platform ${platformName} is enabled but missing nameClass or priceClass selectors in platforms.json. Skipping.`);
     return [];
   }
 
@@ -92,89 +98,104 @@ async function scrapePlatform(platformName: string, medicineName: string, config
     console.log(`Platform ${platformName}: Found ${nameElements.length} name elements using selector "${config.nameClass}" and ${priceElements.length} price elements using selector "${config.priceClass}".`);
 
     if (nameElements.length === 0 || priceElements.length === 0) {
-      console.warn(`No data found on ${platformName} for ${medicineName}.`);
+      console.warn(`No data found on ${platformName} for ${medicineName}. Caching empty result.`);
       medicineCache.set(cacheKey, { data: [], timestamp: Date.now() });
       return [];
     }
     
-    const extractedItems: {name: string, price: string, elementContext: cheerio.Cheerio<cheerio.Element>}[] = [];
-     nameElements.each((i, el) => {
+    const potentialProductsOnPage: { name: string; price: string; elementContext: cheerio.Cheerio<cheerio.Element> }[] = [];
+    nameElements.each((i, el) => {
       const name = $(el).text().trim();
-      const priceEl = priceElements.eq(i);
+      // Try to find a corresponding price element.
+      // This assumes name and price elements appear in the same order and quantity,
+      // or that priceElements are selected relative to nameElements if selectors are structured that way.
+      // A common pattern is that price is near the name.
+      const priceEl = priceElements.eq(i); // Simplistic correlation by index
+      // Alternative: $(el).closest(SOME_PRODUCT_WRAPPER_SELECTOR).find(config.priceClass)
+      
       const price = getCleanPrice(priceEl.text().trim());
       if (name && price && price !== "N/A") {
-        extractedItems.push({ name, price, elementContext: $(el) });
+        potentialProductsOnPage.push({ name, price, elementContext: $(el) });
       }
     });
 
-    console.log(`Platform ${platformName}: Extracted ${extractedItems.length} potential items with both name and price.`);
-    if (extractedItems.length === 0) {
+    console.log(`Platform ${platformName}: Created ${potentialProductsOnPage.length} potential product objects from page.`);
+    if (potentialProductsOnPage.length === 0) {
         medicineCache.set(cacheKey, { data: [], timestamp: Date.now() });
         return [];
     }
 
-    const fuse = new Fuse(extractedItems.map(item => item.name), {
-        threshold: 0.4,
+    const fuse = new Fuse(potentialProductsOnPage, {
+        keys: ['name'],
+        threshold: 0.4, // Adjusted threshold
         includeScore: true,
-        minMatchCharLength: Math.max(3, Math.floor(medicineName.length * 0.6))
+        minMatchCharLength: Math.max(3, Math.floor(medicineName.length * 0.5)) // Adjusted for more flexibility
     });
-    const searchTermLower = medicineName.toLowerCase();
+
+    const fuzzyMatches = fuse.search(medicineName); // Search user's term in the names of potentialProductsOnPage
+    console.log(`Platform ${platformName}: Fuse.js found ${fuzzyMatches.length} potential matches for "${medicineName}".`);
+
     const results: ScrapedMedicineResult[] = [];
+    for (const match of fuzzyMatches) {
+      const product = match.item;
+      let productLink = config.linkBaseUrl || url; // Default to search URL or base
 
-    for (const item of extractedItems) {
-      const nameLower = item.name.toLowerCase();
-      let isMatch = false;
-
-      if (nameLower.includes(searchTermLower)) {
-          isMatch = true;
-      } else {
-          const fuzzyMatches = fuse.search(item.name); // Search current item.name in the list of scraped names
-          if (fuzzyMatches.length > 0 && fuzzyMatches[0].item.toLowerCase().includes(searchTermLower) && (fuzzyMatches[0].score ?? 1) < 0.4) {
-             // If the best fuzzy match for item.name still contains the search term and has a good score
-             isMatch = true;
-          }
-      }
-      
-      if (isMatch) {
-        let productLink = config.linkBaseUrl || url; // Default to search URL or base
-        if (config.linkSelector) {
-            let linkElement = item.elementContext.closest('a');
-            if (!linkElement.length) linkElement = item.elementContext.parent().find(config.linkSelector);
-             if (!linkElement.length) {
-                const commonAncestor = item.elementContext.parentsUntil((_, elem) => $(elem).find(config.nameClass).length > 0 && $(elem).find(config.priceClass).length > 0).last().parent();
-                linkElement = commonAncestor.find(config.linkSelector).first(); // Try specific selector on common ancestor
-                if(!linkElement.length) linkElement = commonAncestor.find('a[href]').first(); // Fallback to any link
-            }
-            
-            const href = linkElement.attr('href');
-            if (href) {
-                if (href.startsWith('http')) {
-                    productLink = href;
-                } else if (config.linkBaseUrl) {
-                    try {
-                        productLink = new URL(href, config.linkBaseUrl).href;
-                    } catch (urlError) { /* use default */ }
-                } else {
-                     productLink = href; // relative
-                }
+      if (config.linkSelector) {
+        let linkElement = product.elementContext.closest('a'); // Try closest 'a' to the name element
+        if (!linkElement.length) { // If not found, try the configured selector relative to the name element's parent
+            linkElement = product.elementContext.parent().find(config.linkSelector);
+        }
+        // If still not found, try finding it within a common ancestor of name and a hypothetical price element
+        if (!linkElement.length) {
+            // This assumes nameClass and priceClass elements share a common ancestor that acts as a product card
+            const commonAncestor = product.elementContext.parentsUntil((_, elem) => $(elem).find(config.nameClass).length > 0 && $(elem).find(config.priceClass).length > 0).last().parent();
+            linkElement = commonAncestor.find(config.linkSelector).first();
+             if(!linkElement.length) linkElement = commonAncestor.find('a[href]').first(); // Fallback to any link in common ancestor
+        }
+        
+        const href = linkElement.attr('href');
+        if (href) {
+            if (href.startsWith('http')) {
+                productLink = href;
+            } else if (config.linkBaseUrl) {
+                try {
+                    productLink = new URL(href, config.linkBaseUrl).href;
+                } catch (urlError) { /* use default base URL */ }
+            } else {
+                 productLink = href; // store relative if no base
             }
         }
-
-        results.push({
-          pharmacyName: platformName,
-          drugName: item.name,
-          price: item.price,
-          addToCartLink: productLink,
-          availability: "Info not available", // This would require more specific selectors per site
-          imageUrl: `https://placehold.co/150x150.png?text=${encodeURIComponent(item.name.substring(0,3))}`,
-          originalPrice: undefined,
-          discount: undefined,
-        });
+      } else {
+        // Fallback: try to find any link that is an ancestor of the name element
+        const ancestorLink = product.elementContext.closest('a');
+        if (ancestorLink.length && ancestorLink.attr('href')) {
+            const href = ancestorLink.attr('href')!;
+             if (href.startsWith('http')) {
+                productLink = href;
+            } else if (config.linkBaseUrl) {
+                 try {
+                    productLink = new URL(href, config.linkBaseUrl).href;
+                } catch (urlError) { /* use default */ }
+            } else {
+                productLink = href;
+            }
+        }
       }
+
+      results.push({
+        pharmacyName: platformName,
+        drugName: product.name,
+        price: product.price, // Already cleaned
+        addToCartLink: productLink,
+        availability: "Info not available", // This would require more specific selectors per site
+        imageUrl: `https://placehold.co/150x150.png?text=${encodeURIComponent(product.name.substring(0,3))}`,
+        originalPrice: undefined, // Requires specific selectors
+        discount: undefined,      // Requires specific selectors
+      });
     }
     
-    const finalResults = results.slice(0, 5);
-    console.log(`Successfully scraped and filtered ${finalResults.length} items from ${platformName} for ${medicineName}`);
+    const finalResults = results.slice(0, 5); // Limit to top 5 relevant results
+    console.log(`Platform ${platformName}: Final ${finalResults.length} relevant results for "${medicineName}":`, finalResults.map(r => ({name: r.drugName, price: r.price})));
     medicineCache.set(cacheKey, { data: finalResults, timestamp: Date.now() });
     return finalResults;
 
@@ -228,21 +249,25 @@ export async function searchPharmaciesAction(searchTerm: string): Promise<{ data
     console.log(`Server Action: Total results from all platforms for "${trimmedMedicineName}": ${allResults.length}`);
     
     if (allResults.length === 0) {
+      // No error property here, just an empty data array, UI will handle "no results"
       return { data: [] };
     }
     
+    // Optional: Sort all results, e.g., by price if prices are numeric and comparable
     allResults.sort((a, b) => {
         const priceA = parseFloat(a.price.replace(/[^0-9.]/g, ''));
         const priceB = parseFloat(b.price.replace(/[^0-9.]/g, ''));
         if (!isNaN(priceA) && !isNaN(priceB)) {
             if(priceA !== priceB) return priceA - priceB;
         }
+        // Fallback sort by drug name if prices are equal or not parseable
         return a.drugName.localeCompare(b.drugName);
     });
 
     return { data: allResults };
 
   } catch (err: any) {
+    // This catch is for truly unexpected errors in the orchestration logic itself
     console.error("Unexpected error in searchPharmaciesAction orchestrating scrapes:", err);
     return { error: "An unexpected error occurred during the search. Please try again." };
   }
