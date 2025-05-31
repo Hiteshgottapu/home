@@ -62,10 +62,12 @@ export function ChatPage() {
     setIsLoading(true);
 
     try {
+      // Correctly map for the action: it expects role/content not sender/text for its history.
+      // However, generalChatFlow expects role/parts for its history. This mapping is in actions.ts.
       const conversationHistoryForAction = messages.map(msg => ({
         id: msg.id,
-        text: typeof msg.content === 'string' ? msg.content : 'Complex content', 
-        sender: msg.role, // Using 'role' here but action expects 'sender'
+        text: typeof msg.content === 'string' ? msg.content : 'Complex content', // Keep as text for action's internal logic
+        sender: msg.role, // Action uses 'sender'
         timestamp: msg.timestamp,
       }));
 
@@ -125,7 +127,7 @@ export function ChatPage() {
       const conversationHistoryForAction = historyBeforeRegen.map(msg => ({
         id: msg.id,
         text: typeof msg.content === 'string' ? msg.content : 'Complex content',
-        sender: msg.role, // Using 'role' here
+        sender: msg.role,
         timestamp: msg.timestamp,
       }));
 
@@ -180,8 +182,42 @@ export function ChatPage() {
         <h1 className="text-xl font-semibold text-primary">AI Health Assistant</h1>
         <p className="text-sm text-muted-foreground">Your partner in health. Not a replacement for professional medical advice.</p>
       </header>
+      
+      <ScrollArea className="flex-grow" viewportRef={scrollAreaViewportRef}>
+        <div className="space-y-1 p-4 pb-24"> {/* Increased padding bottom */}
+          {messages.map((msg) => (
+            <ChatMessage key={msg.id} message={msg} onRegenerate={handleRegenerateResponse} />
+          ))}
+          {isLoading && messages.length > 0 && messages[messages.length-1].role === 'user' && (
+            <div className="flex items-end gap-3 my-3 animate-fadeIn justify-start w-full">
+                <div className="flex-shrink-0">
+                    <Avatar className="h-8 w-8 border border-primary/20">
+                         <AvatarFallback className="bg-primary text-primary-foreground"><Bot size={18} /></AvatarFallback>
+                    </Avatar>
+                </div>
+                 <div className="flex flex-col items-start max-w-[80%] md:max-w-[70%]">
+                    <div className="p-3 md:p-4 rounded-xl shadow-md bg-card text-card-foreground border border-border rounded-bl-none">
+                        <p className="text-sm italic flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                          VitaLog AI is thinking...
+                        </p>
+                    </div>
+                    <p className="text-xs text-muted-foreground/80 mt-1 ml-1 self-start">
+                        {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                 </div>
+            </div>
+          )}
+        </div>
+      </ScrollArea>
 
-      <div className="p-4 border-b bg-muted/30">
+      <EmergencyDialog
+        isOpen={showEmergencyDialog}
+        onClose={() => setShowEmergencyDialog(false)}
+        message={emergencyMessage}
+      />
+      
+      <div className="p-4 border-t border-b bg-muted/30">
         <p className="text-xs text-muted-foreground mb-1.5 px-1">Common symptoms (click to add):</p>
         <div className="flex flex-wrap gap-2">
           {COMMON_SYMPTOMS.map(symptom => (
@@ -198,41 +234,9 @@ export function ChatPage() {
           ))}
         </div>
       </div>
-      
-      <ScrollArea className="flex-grow" viewportRef={scrollAreaViewportRef}>
-        <div className="space-y-1 p-4 pb-24">
-          {messages.map((msg) => (
-            <ChatMessage key={msg.id} message={msg} onRegenerate={handleRegenerateResponse} />
-          ))}
-          {isLoading && messages.length > 0 && messages[messages.length-1].role === 'user' && (
-            <div className="flex items-start gap-2.5 my-3 animate-fadeIn justify-start">
-                <Avatar className="h-8 w-8 border border-primary/20 shrink-0">
-                     <AvatarFallback className="bg-primary text-primary-foreground"><Bot size={18} /></AvatarFallback>
-                </Avatar>
-                 <div className="flex flex-col items-start">
-                    <div className="max-w-xs sm:max-w-sm md:max-w-md p-3 rounded-xl shadow-sm bg-card text-card-foreground border border-border rounded-bl-none">
-                        <p className="text-sm italic flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                          VitaLog AI is thinking...
-                        </p>
-                    </div>
-                    <p className="text-xs text-muted-foreground/80 mt-1 ml-1">
-                        {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                 </div>
-            </div>
-          )}
-        </div>
-      </ScrollArea>
 
-      <EmergencyDialog
-        isOpen={showEmergencyDialog}
-        onClose={() => setShowEmergencyDialog(false)}
-        message={emergencyMessage}
-      />
-      
-      <div className="px-4 pt-2 pb-3 border-t bg-card">
-         <p className="text-xs text-muted-foreground text-center mb-2">
+      <div className="px-4 pt-2 pb-3 bg-muted/30">
+         <p className="text-xs text-muted-foreground text-center">
             VitaLog AI is for informational purposes only. Always consult with a qualified healthcare professional for medical advice.
             In case of emergency, call your local emergency number immediately.
         </p>
