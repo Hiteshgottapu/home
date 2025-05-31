@@ -1,7 +1,7 @@
 
 "use client";
 import React, { useState, useRef, useEffect, FormEvent } from "react";
-import { ChatMessage } from "./ChatMessage";
+import ChatMessage from "./ChatMessage"; // Changed to default import
 import { EmergencyDialog } from "./EmergencyDialog";
 import type { Message, AIResponse } from "../types";
 import { handleUserMessage } from "../actions";
