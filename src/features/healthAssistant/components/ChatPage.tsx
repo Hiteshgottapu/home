@@ -1,18 +1,20 @@
 
 "use client";
 import React, { useState, useRef, useEffect, FormEvent } from "react";
-import ChatMessage from "./ChatMessage"; // Changed to default import
+import { ChatMessage } from "./ChatMessage"; // Corrected to named import
 import { EmergencyDialog } from "./EmergencyDialog";
 import type { Message, AIResponse } from "../types";
 import { handleUserMessage } from "../actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, Loader2, Mic } from "lucide-react"; // Added Mic
+import { Send, Loader2, Mic } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"; // Added this line
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Bot } from "lucide-react";
 
-const COMMON_SYMPTOMS = ['Headache', 'Fever', 'Cough', 'Fatigue', 'Nausea'];
+
+const COMMON_SYMPTOMS = ['Headache', 'Fever', 'Cough', 'Fatigue', 'Nausea', 'Sore Throat', 'Diarrhea'];
 
 export function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -26,9 +28,12 @@ export function ChatPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Scroll to bottom when messages change
     if (scrollAreaViewportRef.current) {
-        scrollAreaViewportRef.current.scrollTop = scrollAreaViewportRef.current.scrollHeight;
+      setTimeout(() => {
+        if (scrollAreaViewportRef.current) {
+          scrollAreaViewportRef.current.scrollTop = scrollAreaViewportRef.current.scrollHeight;
+        }
+      }, 0);
     }
   }, [messages]);
 
@@ -57,7 +62,6 @@ export function ChatPage() {
     setIsLoading(true);
 
     try {
-      // Pass currentInput to handleUserMessage
       const aiResponse: AIResponse = await handleUserMessage([...messages, userMessage], currentInput); 
       
       if (aiResponse.isEmergency) {
@@ -108,20 +112,41 @@ export function ChatPage() {
         <h1 className="text-xl font-semibold text-primary">AI Health Assistant</h1>
         <p className="text-sm text-muted-foreground">Your partner in health. Not a replacement for professional medical advice.</p>
       </header>
+
+      <div className="p-4 border-b bg-muted/30">
+        <p className="text-xs text-muted-foreground mb-1.5 px-1">Common symptoms (click to add):</p>
+        <div className="flex flex-wrap gap-2">
+          {COMMON_SYMPTOMS.map(symptom => (
+            <Button 
+              key={symptom} 
+              variant="outline" 
+              size="sm" 
+              className="rounded-full text-xs h-7 px-3 font-normal text-muted-foreground hover:text-primary hover:border-primary transition-colors duration-200 active:scale-95" 
+              onClick={() => handleSymptomClick(symptom)}
+              disabled={isLoading}
+            >
+              {symptom}
+            </Button>
+          ))}
+        </div>
+      </div>
       
       <ScrollArea className="flex-grow" viewportRef={scrollAreaViewportRef}>
-        <div className="space-y-1 p-4">
+        <div className="space-y-1 p-4 pb-6"> {/* Added pb-6 for spacing above input area */}
           {messages.map((msg) => (
             <ChatMessage key={msg.id} message={msg} />
           ))}
           {isLoading && messages.length > 0 && messages[messages.length-1].sender === 'user' && (
             <div className="flex items-start gap-2.5 my-3 animate-fadeIn justify-start">
                 <Avatar className="h-8 w-8 border border-primary/20 shrink-0">
-                    <AvatarFallback className="bg-primary text-primary-foreground"><Loader2 className="h-[18px] w-[18px] animate-spin" /></AvatarFallback>
+                     <AvatarFallback className="bg-primary text-primary-foreground"><Bot size={18} /></AvatarFallback>
                 </Avatar>
                  <div className="flex flex-col items-start">
                     <div className="max-w-xs sm:max-w-sm md:max-w-md p-3 rounded-xl shadow-sm bg-card text-card-foreground border border-border rounded-bl-none">
-                        <p className="text-sm italic">VitaLog AI is thinking...</p>
+                        <p className="text-sm italic flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                          VitaLog AI is thinking...
+                        </p>
                     </div>
                  </div>
             </div>
@@ -134,26 +159,16 @@ export function ChatPage() {
         onClose={() => setShowEmergencyDialog(false)}
         message={emergencyMessage}
       />
+      
+      <div className="px-4 pt-2 pb-3 border-t bg-card">
+         <p className="text-xs text-muted-foreground text-center mb-2">
+            VitaLog AI is for informational purposes only. Always consult with a qualified healthcare professional for medical advice.
+            In case of emergency, call your local emergency number immediately.
+        </p>
+      </div>
 
-      <footer className="p-4 border-t bg-card sticky bottom-0 z-10">
+      <footer className="p-4 border-t bg-card sticky bottom-0 z-10 shadow-top">
         <div className="max-w-3xl mx-auto">
-          <div className="mb-3">
-            <p className="text-xs text-muted-foreground mb-1.5 px-1">Common symptoms:</p>
-            <div className="flex flex-wrap gap-2">
-              {COMMON_SYMPTOMS.map(symptom => (
-                <Button 
-                  key={symptom} 
-                  variant="outline" 
-                  size="sm" 
-                  className="rounded-full text-xs h-7 px-3 font-normal text-muted-foreground hover:text-primary hover:border-primary" 
-                  onClick={() => handleSymptomClick(symptom)}
-                  disabled={isLoading}
-                >
-                  {symptom}
-                </Button>
-              ))}
-            </div>
-          </div>
           <form onSubmit={handleSubmit} className="flex items-center gap-3">
             <Input
               ref={inputRef}
@@ -165,22 +180,18 @@ export function ChatPage() {
               disabled={isLoading}
               aria-label="Chat input"
             />
-            {/* Microphone button - Non-functional visual placeholder */}
-            <Button type="button" variant="ghost" size="icon" className="rounded-full text-muted-foreground hover:text-primary shrink-0 h-11 w-11" disabled={isLoading || true}> {/* Disabled true as it's non-functional */}
+            <Button type="button" variant="ghost" size="icon" className="rounded-full text-muted-foreground hover:text-primary shrink-0 h-11 w-11 transition-colors duration-200 active:scale-95" disabled={isLoading || true}>
               <Mic className="h-5 w-5" />
               <span className="sr-only">Voice input (not available)</span>
             </Button>
-            <Button type="submit" size="icon" className="rounded-full w-11 h-11 bg-primary text-primary-foreground hover:bg-primary/90 shrink-0" disabled={isLoading || !input.trim()}>
+            <Button type="submit" size="icon" className="rounded-full w-11 h-11 bg-primary text-primary-foreground hover:bg-primary/90 shrink-0 transition-colors duration-200 active:scale-95" disabled={isLoading || !input.trim()}>
               {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
               <span className="sr-only">Send message</span>
             </Button>
           </form>
-           <p className="text-xs text-muted-foreground mt-3 text-center">
-              VitaLog AI is for informational purposes only. Always consult with a qualified healthcare professional for medical advice.
-              In case of emergency, call your local emergency number immediately.
-          </p>
         </div>
       </footer>
     </div>
   );
 }
+
