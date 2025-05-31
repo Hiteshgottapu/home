@@ -97,6 +97,8 @@ async function scrapePlatform(platformName: string, medicineName: string, config
     nameElements = $(config.nameClass);
     priceElements = $(config.priceClass);
     
+    console.log(`Platform ${platformName}: Found ${nameElements.length} name elements and ${priceElements.length} price elements.`);
+    
     const extractedItems: {name: string, price: string, elementContext: cheerio.Cheerio<cheerio.Element>}[] = [];
 
     nameElements.each((i, el) => {
@@ -105,19 +107,22 @@ async function scrapePlatform(platformName: string, medicineName: string, config
       const price = priceEl.text().trim();
       if (name && price) {
         extractedItems.push({ name, price, elementContext: $(el) });
+      } else {
+        console.log(`Platform ${platformName}: Mismatch or empty data for item index ${i}. Name: "${name}", Price: "${price}"`);
       }
     });
 
 
-    console.log(`Platform ${platformName}: Found ${extractedItems.length} potential items.`);
+    console.log(`Platform ${platformName}: Extracted ${extractedItems.length} potential items with both name and price.`);
 
     if (extractedItems.length === 0) {
       console.warn(`No data pairs (name/price) found on ${platformName} for ${medicineName} using selectors: Name='${config.nameClass}', Price='${config.priceClass}'.`);
+      // console.log("Fetched HTML snippet (first 500 chars):", data.substring(0, 500)); // Uncomment for debugging HTML
       return [];
     }
 
     const fuse = new Fuse(extractedItems.map(item => item.name), { 
-        threshold: 0.4, // Adjust threshold for fuzziness
+        threshold: 0.4, // Adjusted threshold for fuzziness
         includeScore: true,
         minMatchCharLength: Math.min(3, medicineName.length / 2), // Require some overlap
      });
@@ -131,18 +136,35 @@ async function scrapePlatform(platformName: string, medicineName: string, config
         let productLink = config.linkBaseUrl || '';
         if (config.linkSelector) {
             // Try to find the link within the name element's parent or a product block
-            const linkElement = item.elementContext.closest('a').attr('href') || item.elementContext.find(config.linkSelector).attr('href') || item.elementContext.parentsUntil( (idx, elem) => $(elem).find(config.nameClass).length > 0 && $(elem).find(config.priceClass).length > 0 ).first().find('a').attr('href');
-            if (linkElement) {
-                if (linkElement.startsWith('http')) {
-                    productLink = linkElement;
+            // Heuristic: try closest 'a', then specific selector on parent, then general 'a' on a common ancestor
+            let linkElement = item.elementContext.closest('a');
+            if (!linkElement.length) linkElement = item.elementContext.parent().find(config.linkSelector);
+            if (!linkElement.length) {
+                // Try finding a common ancestor that groups product details
+                const commonAncestor = item.elementContext.parentsUntil((idx, elem) => $(elem).find(config.nameClass).length > 0 && $(elem).find(config.priceClass).length > 0).last().parent();
+                linkElement = commonAncestor.find('a[href]'); // Find any link within this block
+            }
+            
+            const href = linkElement.attr('href');
+
+            if (href) {
+                if (href.startsWith('http')) {
+                    productLink = href;
                 } else if (config.linkBaseUrl) {
-                    productLink = new URL(linkElement, config.linkBaseUrl).href;
+                    try {
+                        productLink = new URL(href, config.linkBaseUrl).href;
+                    } catch (urlError) {
+                        console.warn(`Platform ${platformName}: Invalid URL component "${href}" for base "${config.linkBaseUrl}". Defaulting to search URL.`);
+                        productLink = config.url(medicineName);
+                    }
+                } else {
+                    productLink = href; // Relative link if no base URL
                 }
             } else {
                  productLink = config.url(medicineName); // Fallback to search URL
             }
         } else {
-            productLink = config.url(medicineName); // Fallback to search URL
+            productLink = config.url(medicineName); // Fallback to search URL if no link selector
         }
 
         results.push({
@@ -150,10 +172,10 @@ async function scrapePlatform(platformName: string, medicineName: string, config
           drugName: item.name,
           price: item.price.replace(/[^0-9.,₹]/g, '').replace('₹', '').trim() || "N/A", // Clean price
           addToCartLink: productLink,
-          availability: "Info not available", // Default
-          imageUrl: `https://placehold.co/150x150.png?text=${item.name.substring(0,3)}`,
-          originalPrice: undefined,
-          discount: undefined,
+          availability: "Info not available", // Default, not scraped
+          imageUrl: `https://placehold.co/150x150.png?text=${encodeURIComponent(item.name.substring(0,3))}`, // Placeholder image
+          originalPrice: undefined, // Not scraped
+          discount: undefined, // Not scraped
         });
       }
       // Fuzzy matching as a fallback (can be less accurate)
@@ -168,13 +190,19 @@ async function scrapePlatform(platformName: string, medicineName: string, config
     // Simple fuzzy filter on results if needed, or rely on initial check
     const fuseResults = new Fuse(results.map(r => r.drugName), { threshold: 0.6, includeScore: true });
     const finalFilteredResults = results.filter(r => {
+        // Ensure the original search term is somewhat present in the found drug name (case-insensitive)
+        const drugNameLower = r.drugName.toLowerCase();
+        const searchTermLower = medicineName.toLowerCase();
+        
+        if (drugNameLower.includes(searchTermLower)) return true;
+
+        // Fallback to fuse if direct include fails
         const match = fuseResults.search(r.drugName);
-        // Basic check: ensure the original search term is somewhat present in the found drug name
-        return r.drugName.toLowerCase().includes(searchTermLower) || (match.length > 0 && (match[0].score || 1) < 0.6);
+        return (match.length > 0 && (match[0].score || 1) < 0.6);
     });
 
 
-    console.log(`Platform ${platformName}: After filtering, ${finalFilteredResults.length} relevant items.`);
+    console.log(`Platform ${platformName}: After filtering, ${finalFilteredResults.length} relevant items for "${medicineName}".`);
     return finalFilteredResults.slice(0, 5); // Limit to 5 results per platform
 
   } catch (error: any) {
