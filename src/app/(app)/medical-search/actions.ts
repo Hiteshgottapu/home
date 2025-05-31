@@ -1,11 +1,11 @@
 
-"use server";
+'use server';
 
 import type { ScrapedMedicineResult } from '@/types';
 import axios from 'axios';
-import * as cheerio from 'cheerio';
+import * as io from 'cheerio'; // Corrected import
 import Fuse from 'fuse.js';
-import fs from 'fs/promises'; // Use promise-based fs for async operations
+import fs from 'fs/promises';
 import path from 'path';
 
 interface PlatformConfig {
@@ -21,14 +21,27 @@ interface Platforms {
   [key: string]: PlatformConfig;
 }
 
-const CACHE_TTL_SECONDS = 60 * 60 * 3; // Cache results for 3 hours
+let platforms: Platforms = {};
+let platformsLoaded = false;
+const CACHE_TTL_MS = 60 * 60 * 1000 * 3; // 3 hours
+const platformCache = new Map<string, { data: ScrapedMedicineResult[]; timestamp: number }>();
+
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1000;
 
-// Simple in-memory cache
-const medicineCache = new Map<string, { data: ScrapedMedicineResult[]; timestamp: number }>();
-let platforms: Platforms = {};
-let platformsLoaded = false;
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15',
+  'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:89.0) Gecko/20100101 Firefox/89.0',
+];
+
+function getRandomUserAgent() {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 async function loadPlatformConfigs(): Promise<Platforms> {
   if (platformsLoaded) return platforms;
@@ -41,34 +54,22 @@ async function loadPlatformConfigs(): Promise<Platforms> {
     return platforms;
   } catch (error) {
     console.error("Failed to load platform configurations from platforms.json:", error);
-    platformsLoaded = true; // Mark as loaded to prevent retries, even if failed
-    return {}; // Fallback to empty if loading fails
+    platformsLoaded = true;
+    return {};
   }
 }
 
-const USER_AGENTS = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15',
-  'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:89.0) Gecko/20100101 Firefox/89.0',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0'
-];
-
-function getRandomUserAgent() {
-  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+function getCleanPrice(priceText: string | undefined): string {
+  if (!priceText) return "N/A";
+  return priceText.replace(/[₹,Rs.\s]/g, '').trim();
 }
 
-function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function getCleanPrice(priceText?: string): string {
-    if (!priceText) return "N/A";
-    // Remove currency symbols (₹, Rs.), commas, and leading/trailing whitespace.
-    // Keep the decimal point and numbers.
-    return priceText.replace(/[₹,Rs\s]/gi, '').replace(/[^0-9.]/g, "").trim();
-}
-
-async function scrapePlatform(platformName: string, medicineName: string, config: PlatformConfig, attempt = 1): Promise<ScrapedMedicineResult[]> {
+async function scrapePlatform(
+  platformName: string,
+  medicineName: string,
+  config: PlatformConfig,
+  attempt = 1
+): Promise<ScrapedMedicineResult[]> {
   if (!config || !config.enabled) {
     console.log(`Skipping disabled or misconfigured platform: ${platformName}`);
     return [];
@@ -78,10 +79,9 @@ async function scrapePlatform(platformName: string, medicineName: string, config
     return [];
   }
 
-  const cacheKey = `${platformName}-${medicineName}`;
-  const cachedEntry = medicineCache.get(cacheKey);
-
-  if (cachedEntry && (Date.now() - cachedEntry.timestamp) < CACHE_TTL_SECONDS * 1000) {
+  const cacheKey = `${platformName}-${medicineName.toLowerCase()}`;
+  const cachedEntry = platformCache.get(cacheKey);
+  if (cachedEntry && (Date.now() - cachedEntry.timestamp < CACHE_TTL_MS)) {
     console.log(`[CACHE HIT] Serving from cache for ${platformName} - ${medicineName}`);
     return cachedEntry.data;
   }
@@ -89,109 +89,113 @@ async function scrapePlatform(platformName: string, medicineName: string, config
 
   try {
     const url = config.urlTemplate.replace('{medicine}', encodeURIComponent(medicineName));
-    console.log(`Scraping URL: ${url} for platform ${platformName}`);
+    console.log(`Scraping URL: ${url} for ${platformName}`);
+
     const { data } = await axios.get(url, {
       headers: { 'User-Agent': getRandomUserAgent() },
-      timeout: 15000 
+      timeout: 15000,
     });
 
-    const $ = cheerio.load(data);
+    const $ = io.load(data); // Corrected usage
+
     const nameElements = $(config.nameClass);
     const priceElements = $(config.priceClass);
 
-    console.log(`Platform ${platformName}: Found ${nameElements.length} name elements using selector "${config.nameClass}" and ${priceElements.length} price elements using selector "${config.priceClass}".`);
+    console.log(`Platform ${platformName}: Found ${nameElements.length} name elements using selector '${config.nameClass}'.`);
+    console.log(`Platform ${platformName}: Found ${priceElements.length} price elements using selector '${config.priceClass}'.`);
 
-    if (nameElements.length === 0 || priceElements.length === 0) {
-      console.warn(`No data found on ${platformName} for ${medicineName}. Caching empty result.`);
-      medicineCache.set(cacheKey, { data: [], timestamp: Date.now() });
-      return [];
-    }
-    
-    const potentialProductsOnPage: { name: string; price: string; elementContext: cheerio.Cheerio<cheerio.Element> }[] = [];
-    nameElements.each((i, el) => {
-      const name = $(el).text().trim();
-      // Find corresponding price element. Simplistic correlation by index, needs robust pairing.
-      const priceEl = priceElements.eq(i); 
-      const price = getCleanPrice(priceEl.text().trim());
-      if (name && price && price !== "N/A") {
-        potentialProductsOnPage.push({ name, price, elementContext: $(el) });
+    const potentialProductsOnPage: { name: string; price: string; elementContext: io.Cheerio<io.Element> }[] = [];
+
+    nameElements.each((index, nameEl) => {
+      const name = $(nameEl).text().trim();
+      // Try to find price relative to the name element first, then fall back to direct priceElements indexing
+      let priceElement = $(nameEl).closest(':has(>' + config.priceClass + ')').find(config.priceClass).first();
+      if (!priceElement.length && priceElements[index]) {
+          priceElement = $(priceElements[index]);
+      }
+      const price = getCleanPrice(priceElement.text().trim());
+
+      if (name) {
+        potentialProductsOnPage.push({
+          name: name,
+          price: price || "N/A",
+          elementContext: $(nameEl)
+        });
       }
     });
+    console.log(`Platform ${platformName}: Created ${potentialProductsOnPage.length} potential product objects.`);
 
-    console.log(`Platform ${platformName}: Created ${potentialProductsOnPage.length} potential product objects from page.`);
+
     if (potentialProductsOnPage.length === 0) {
-        medicineCache.set(cacheKey, { data: [], timestamp: Date.now() });
-        return [];
+      console.warn(`No potential products extracted on ${platformName} for ${medicineName}.`);
+      platformCache.set(cacheKey, { data: [], timestamp: Date.now() });
+      return [];
     }
 
     const fuse = new Fuse(potentialProductsOnPage, {
-        keys: ['name'],
-        threshold: 0.4, 
-        includeScore: true,
-        minMatchCharLength: Math.max(3, Math.floor(medicineName.length * 0.5)) 
+      keys: ['name'],
+      threshold: 0.4,
+      includeScore: true,
+      minMatchCharLength: Math.max(2, Math.floor(medicineName.length * 0.5)),
     });
 
-    const fuzzyMatches = fuse.search(medicineName); 
+    const fuzzyMatches = fuse.search(medicineName);
     console.log(`Platform ${platformName}: Fuse.js found ${fuzzyMatches.length} potential matches for "${medicineName}".`);
 
     const results: ScrapedMedicineResult[] = [];
+    const addedProductNames = new Set<string>();
+
     for (const match of fuzzyMatches) {
+      if (results.length >= 5) break;
+
       const product = match.item;
-      let productLink: string | undefined = config.linkBaseUrl || url;
-
-      if (config.linkSelector) {
-        let linkElement = product.elementContext.closest('a'); 
-        if (!linkElement.length) { 
-            linkElement = product.elementContext.parent().find(config.linkSelector);
+      if (product.name && product.price !== "N/A" && !addedProductNames.has(product.name.toLowerCase())) {
+        let productLink: string | undefined = undefined;
+        // Try to find link using config.linkSelector relative to the product name's context
+        if (config.linkSelector) {
+          const linkEl = product.elementContext.closest(config.linkSelector).attr('href') || 
+                         product.elementContext.find(config.linkSelector).attr('href');
+          if (linkEl) {
+            productLink = config.linkBaseUrl && !linkEl.startsWith('http') ? new URL(linkEl, config.linkBaseUrl).href : linkEl;
+          }
         }
-        if (!linkElement.length) {
-            const commonAncestor = product.elementContext.parentsUntil((_, elem) => $(elem).find(config.nameClass).length > 0 && $(elem).find(config.priceClass).length > 0).last().parent();
-            linkElement = commonAncestor.find(config.linkSelector).first();
-             if(!linkElement.length) linkElement = commonAncestor.find('a[href]').first(); 
-        }
-        
-        const href = linkElement.attr('href');
-        if (href) {
-            if (href.startsWith('http')) {
-                productLink = href;
-            } else if (config.linkBaseUrl) {
-                try { productLink = new URL(href, config.linkBaseUrl).href; } catch (urlError) { productLink = undefined; }
-            } else {
-                 productLink = href; 
+        // Fallback: try to find closest 'a' tag to the name element
+        if (!productLink) {
+            const ancestorAnchor = product.elementContext.closest('a');
+            if (ancestorAnchor.length > 0 && ancestorAnchor.attr('href')) {
+                productLink = ancestorAnchor.attr('href');
+                 if (productLink && config.linkBaseUrl && !productLink.startsWith('http')) {
+                    productLink = new URL(productLink, config.linkBaseUrl).href;
+                }
             }
-        } else {
-          productLink = undefined;
         }
-      } else {
-        const ancestorLink = product.elementContext.closest('a');
-        if (ancestorLink.length && ancestorLink.attr('href')) {
-            const href = ancestorLink.attr('href')!;
-             if (href.startsWith('http')) { productLink = href; } 
-             else if (config.linkBaseUrl) { try { productLink = new URL(href, config.linkBaseUrl).href; } catch (urlError) { productLink = undefined; } } 
-             else { productLink = href; }
-        } else {
-          productLink = undefined;
+        // Fallback: check if parent of name element is an anchor
+         if (!productLink && product.elementContext.parent().is('a')) {
+            productLink = product.elementContext.parent().attr('href');
+            if (productLink && config.linkBaseUrl && !productLink.startsWith('http')) {
+                productLink = new URL(productLink, config.linkBaseUrl).href;
+            }
         }
-      }
 
-      results.push({
-        pharmacyName: platformName,
-        drugName: product.name,
-        price: product.price, 
-        addToCartLink: productLink,
-        imageUrl: `https://placehold.co/150x150.png?text=${encodeURIComponent(product.name.substring(0,3))}`,
-      });
+        results.push({
+          pharmacyName: platformName,
+          drugName: product.name,
+          price: product.price,
+          addToCartLink: productLink || undefined,
+          imageUrl: `https://placehold.co/100x100.png?text=${encodeURIComponent(product.name.substring(0,10))}`,
+        });
+        addedProductNames.add(product.name.toLowerCase());
+      }
     }
-    
-    const finalResults = results.slice(0, 5); 
-    console.log(`Platform ${platformName}: Final ${finalResults.length} relevant results for "${medicineName}":`, finalResults.map(r => ({name: r.drugName, price: r.price})));
-    medicineCache.set(cacheKey, { data: finalResults, timestamp: Date.now() });
-    return finalResults;
+    console.log(`Platform ${platformName}: Filtered down to ${results.length} relevant results for "${medicineName}".`);
+
+    platformCache.set(cacheKey, { data: results, timestamp: Date.now() });
+    return results;
 
   } catch (error: any) {
     console.error(`Error scraping ${platformName} for ${medicineName} (Attempt ${attempt}):`, error.message);
-    if (error.response) {
-        console.error(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data || error.message).substring(0, 200)}`);
+    if (axios.isAxiosError(error) && error.response) {
+      console.error(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data || error.message).substring(0, 200)}`);
     }
     if (attempt < MAX_RETRIES) {
       console.log(`Retrying scrape for ${platformName} - ${medicineName} in ${RETRY_DELAY_MS * attempt}ms...`);
@@ -199,7 +203,7 @@ async function scrapePlatform(platformName: string, medicineName: string, config
       return scrapePlatform(platformName, medicineName, config, attempt + 1);
     } else {
       console.error(`Max retries reached for ${platformName} - ${medicineName}. Giving up.`);
-      medicineCache.set(cacheKey, { data: [], timestamp: Date.now() });
+      platformCache.set(cacheKey, { data: [], timestamp: Date.now() });
       return [];
     }
   }
@@ -214,10 +218,9 @@ export async function searchPharmaciesAction(searchTerm: string): Promise<{ data
 
   const currentPlatforms = await loadPlatformConfigs();
   if (Object.keys(currentPlatforms).length === 0) {
-      console.error("Server Action: No platforms loaded. Aborting search.");
-      return { error: "Platform configurations could not be loaded. Please check server logs." };
+    console.error("Server Action: No platforms loaded. Aborting search.");
+    return { error: "Platform configurations could not be loaded. Please check server logs or platforms.json." };
   }
-
 
   let allResults: ScrapedMedicineResult[] = [];
   const scrapingPromises: Promise<ScrapedMedicineResult[]>[] = [];
@@ -228,7 +231,7 @@ export async function searchPharmaciesAction(searchTerm: string): Promise<{ data
         scrapePlatform(platformName, trimmedMedicineName, config)
           .catch(err => {
             console.error(`Critical error in scrapePlatform promise for ${platformName}: ${err.message}`);
-            return []; 
+            return [];
           })
       );
     } else {
@@ -243,19 +246,10 @@ export async function searchPharmaciesAction(searchTerm: string): Promise<{ data
     });
 
     console.log(`Server Action: Total results from all platforms for "${trimmedMedicineName}": ${allResults.length}`);
-    
+
     if (allResults.length === 0) {
-      return { data: [] };
+      return { data: [], error: `No results found for "${trimmedMedicineName}" across all enabled platforms. This could be due to outdated selectors in platforms.json, network issues, or the medicine not being listed.` };
     }
-    
-    allResults.sort((a, b) => {
-        const priceA = parseFloat(a.price.replace(/[^0-9.]/g, ''));
-        const priceB = parseFloat(b.price.replace(/[^0-9.]/g, ''));
-        if (!isNaN(priceA) && !isNaN(priceB)) {
-            if(priceA !== priceB) return priceA - priceB;
-        }
-        return a.drugName.localeCompare(b.drugName);
-    });
 
     return { data: allResults };
 
@@ -264,3 +258,4 @@ export async function searchPharmaciesAction(searchTerm: string): Promise<{ data
     return { error: "An unexpected error occurred during the search. Please try again." };
   }
 }
+    

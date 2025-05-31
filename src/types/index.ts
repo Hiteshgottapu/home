@@ -100,10 +100,7 @@ export interface DoctorNote {
 }
 
 export interface ScrapedMedicineResult {
-  pharmacyName: string;      // e.g., "PharmEasy"
-  drugName: string;          // e.g., "Paracetamol 500mg Tablet"
-  price: string;             // e.g., "₹20.50"
-  addToCartLink?: string;    // URL to the product page or add to cart (optional)
-  imageUrl?: string;         // URL of the medicine image (optional)
+  pharmacy: string;
+  name: string;
+  price: string;
 }
-
