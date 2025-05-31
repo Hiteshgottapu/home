@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from 'react';
@@ -8,11 +9,11 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Activity, Lightbulb, ThumbsUp, ThumbsDown, MessageSquare } from 'lucide-react';
+import { Loader2, Activity, ListChecks, Info, AlertTriangle, ShieldCheck, Leaf, Pill } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { analyzeSymptoms, AnalyzeSymptomsOutput, AnalyzeSymptomsInput } from '@/ai/flows/analyze-symptoms';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { useAuth } from '@/contexts/AuthContext'; // For AI preferences
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 const SymptomAnalysisSchema = z.object({
   symptoms: z.string().min(10, "Please describe your symptoms in more detail (at least 10 characters).").max(500, "Symptoms input cannot exceed 500 characters."),
@@ -20,18 +21,10 @@ const SymptomAnalysisSchema = z.object({
 
 type SymptomAnalysisFormValues = z.infer<typeof SymptomAnalysisSchema>;
 
-interface Feedback {
-  condition: string;
-  rating: 'accurate' | 'inaccurate' | null;
-  comment: string;
-}
-
 export function SymptomAnalyzer() {
   const [isLoading, setIsLoading] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalyzeSymptomsOutput | null>(null);
-  const [feedbacks, setFeedbacks] = useState<Record<string, Feedback>>({});
   const { toast } = useToast();
-  const { user } = useAuth();
 
   const { register, handleSubmit, formState: { errors }, reset } = useForm<SymptomAnalysisFormValues>({
     resolver: zodResolver(SymptomAnalysisSchema),
@@ -40,20 +33,14 @@ export function SymptomAnalyzer() {
   const onSubmit: SubmitHandler<SymptomAnalysisFormValues> = async (data) => {
     setIsLoading(true);
     setAnalysisResult(null);
-    setFeedbacks({}); // Reset feedback on new analysis
 
     try {
-      // Include AI preference if available from user profile (conceptual)
       const inputData: AnalyzeSymptomsInput = { symptoms: data.symptoms };
-      // if (user?.aiFeedbackPreferences.symptomExplainabilityLevel) {
-      //   inputData.explainabilityLevel = user.aiFeedbackPreferences.symptomExplainabilityLevel;
-      // }
-      
       const result = await analyzeSymptoms(inputData);
       setAnalysisResult(result);
       toast({
         title: "Symptom Analysis Complete",
-        description: "Potential conditions based on your symptoms are listed below.",
+        description: "Your HealthFlow Insights are ready below.",
       });
     } catch (error) {
       console.error("Symptom analysis error:", error);
@@ -66,33 +53,17 @@ export function SymptomAnalyzer() {
       setIsLoading(false);
     }
   };
-
-  const handleFeedback = (conditionName: string, rating: 'accurate' | 'inaccurate') => {
-    setFeedbacks(prev => ({
-      ...prev,
-      [conditionName]: { ...prev[conditionName], condition: conditionName, rating }
-    }));
-    // Here you would call `recordUserFeedbackAI` Cloud Function
-    toast({ title: "Feedback Received", description: `Thank you for your feedback on ${conditionName}!`});
-  };
-
-  const handleFeedbackComment = (conditionName: string, comment: string) => {
-     setFeedbacks(prev => ({
-      ...prev,
-      [conditionName]: { ...prev[conditionName], condition: conditionName, comment }
-    }));
-  };
   
-  // Conceptual: Function to submit all feedback for a condition
-  const submitConditionFeedback = (conditionName: string) => {
-    const feedback = feedbacks[conditionName];
-    if (feedback) {
-      console.log("Submitting feedback for:", conditionName, feedback);
-      // Call to backend: recordUserFeedbackAI({ sourceId: 'symptomCheck_XYZ', feedbackData: feedback })
-      toast({ title: "Comment Submitted", description: `Your comment for ${conditionName} has been noted.`});
-    }
-  };
-
+  const placeholderRedFlags = [
+      "Severe chest pain",
+      "Shortness of breath",
+      "Sudden, severe headache",
+      "Unexplained weight loss",
+      "High fever",
+      "Confusion or disorientation",
+      "Vision changes",
+      "Fainting or loss of consciousness"
+  ];
 
   return (
     <Card className="w-full shadow-lg">
@@ -124,64 +95,152 @@ export function SymptomAnalyzer() {
         </form>
 
         {analysisResult && (
-          <div className="mt-8 space-y-4">
-            <h3 className="text-lg font-semibold text-foreground">Potential Conditions:</h3>
-            {analysisResult.suggestedConditions.length > 0 ? (
-              <Accordion type="single" collapsible className="w-full">
-                {analysisResult.suggestedConditions.map((item, index) => (
-                  <AccordionItem value={`item-${index}`} key={index}>
-                    <AccordionTrigger className="text-base font-medium hover:no-underline">
-                      <div className="flex items-center gap-2">
-                        <Lightbulb className="h-5 w-5 text-accent" />
-                        {item.condition}
-                      </div>
-                    </AccordionTrigger>
-                    <AccordionContent className="space-y-4 pt-2 pb-4 px-1">
-                      <p className="text-sm text-muted-foreground">{item.explanation}</p>
-                      
-                      {/* User Feedback Section */}
-                      <div className="mt-3 p-3 border-t border-border bg-muted/30 rounded-b-md">
-                        <p className="text-xs font-medium mb-2 text-foreground">Was this suggestion accurate?</p>
-                        <div className="flex items-center gap-2 mb-2">
-                          <Button 
-                            variant={feedbacks[item.condition]?.rating === 'accurate' ? 'default' : 'outline'} 
-                            size="sm" 
-                            onClick={() => handleFeedback(item.condition, 'accurate')}
-                            className="text-xs"
-                          >
-                            <ThumbsUp className="mr-1.5 h-3.5 w-3.5" /> Accurate
-                          </Button>
-                          <Button 
-                            variant={feedbacks[item.condition]?.rating === 'inaccurate' ? 'destructive' : 'outline'} 
-                            size="sm" 
-                            onClick={() => handleFeedback(item.condition, 'inaccurate')}
-                            className="text-xs"
-                           >
-                            <ThumbsDown className="mr-1.5 h-3.5 w-3.5" /> Inaccurate
-                          </Button>
-                        </div>
-                        {feedbacks[item.condition]?.rating && (
-                          <div className="space-y-1">
-                            <Label htmlFor={`comment-${index}`} className="text-xs">Optional Comment:</Label>
-                            <Textarea 
-                              id={`comment-${index}`}
-                              rows={2}
-                              placeholder="e.g., I also have symptom Z, or this was very helpful."
-                              value={feedbacks[item.condition]?.comment || ''}
-                              onChange={(e) => handleFeedbackComment(item.condition, e.target.value)}
-                              className="text-xs"
-                            />
-                            <Button size="xs" variant="link" className="text-primary p-0 h-auto" onClick={() => submitConditionFeedback(item.condition)}>Submit Comment</Button>
-                          </div>
-                        )}
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                ))}
-              </Accordion>
-            ) : (
-              <p className="text-sm text-muted-foreground text-center py-4">No specific conditions suggested based on the input. Try providing more details or rephrasing.</p>
+          <div className="mt-8 space-y-6">
+            <h2 className="text-2xl font-semibold text-primary flex items-center gap-2">
+              <ListChecks className="h-7 w-7" />
+              Your HealthFlow Insights
+            </h2>
+
+            {/* Understanding Your Symptoms */}
+            <Accordion type="single" collapsible defaultValue="item-understanding" className="w-full">
+              <AccordionItem value="item-understanding">
+                <AccordionTrigger className="text-lg font-medium hover:no-underline">
+                  <div className="flex items-center gap-2">
+                    <Info className="h-5 w-5 text-blue-600" />
+                    Understanding Your Symptoms
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="space-y-2 pt-2 pb-4 px-1 text-muted-foreground">
+                  {analysisResult.symptomSummary?.generalExplanation ? (
+                    <p>{analysisResult.symptomSummary.generalExplanation}</p>
+                  ) : analysisResult.suggestedConditions && analysisResult.suggestedConditions.length > 0 ? (
+                    <p>{analysisResult.suggestedConditions[0].explanation}</p>
+                  ) : (
+                    <p>General information about your symptoms will appear here.</p>
+                  )}
+                  {analysisResult.symptomSummary?.possibleCauses && analysisResult.symptomSummary.possibleCauses.length > 0 && (
+                    <div className="pt-2">
+                      <h4 className="font-semibold text-sm text-foreground">Possible Causes May Include:</h4>
+                      <ul className="list-disc list-inside pl-2 mt-1 text-sm">
+                        {analysisResult.symptomSummary.possibleCauses.map((cause, idx) => (
+                          <li key={idx}>{cause}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+            
+            {/* Potential Red Flags */}
+             <Card className="border-amber-500/50 bg-amber-100 dark:bg-amber-900/30 text-amber-900 dark:text-amber-100 shadow-md">
+                <CardHeader className="pb-3">
+                    <CardTitle className="text-lg font-semibold flex items-center gap-2 text-amber-700 dark:text-amber-300">
+                        <AlertTriangle className="h-5 w-5"/> Important: Potential Red Flags
+                    </CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm">
+                    <p className="mb-2">Seek immediate medical attention if you experience your symptoms along with any of the following red flag symptoms:</p>
+                    <ul className="list-disc list-inside space-y-1 pl-2">
+                        {(analysisResult.potentialRedFlags && analysisResult.potentialRedFlags.length > 0 
+                          ? analysisResult.potentialRedFlags 
+                          : placeholderRedFlags
+                        ).map((flag, index) => (
+                            <li key={index}>{flag}</li>
+                        ))}
+                    </ul>
+                     {(!analysisResult.potentialRedFlags || analysisResult.potentialRedFlags.length === 0) && (
+                        <p className="mt-2 text-xs italic">Note: This is a general list. AI-specific red flags based on your symptoms will appear here when generated.</p>
+                    )}
+                </CardContent>
+            </Card>
+
+            {/* Other Accordions */}
+            <Accordion type="multiple" className="w-full space-y-3">
+              <AccordionItem value="item-precautions">
+                <AccordionTrigger className="text-base font-medium hover:no-underline [&[data-state=closed]>div>svg.lucide-chevron-down]:text-green-600 [&[data-state=open]>div>svg.lucide-chevron-down]:text-green-700">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="h-5 w-5 text-green-600" />
+                    Helpful Precautions & Self-Care
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="space-y-2 pt-2 pb-4 px-1 text-muted-foreground">
+                  {analysisResult.helpfulPrecautions && analysisResult.helpfulPrecautions.length > 0 ? (
+                    <ul className="list-disc list-inside pl-2 space-y-1">
+                        {analysisResult.helpfulPrecautions.map((item, idx) => <li key={idx}>{item}</li>)}
+                    </ul>
+                  ) : (
+                    <p>General precautions and self-care tips will appear here.</p>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="item-remedies">
+                <AccordionTrigger className="text-base font-medium hover:no-underline [&[data-state=closed]>div>svg.lucide-chevron-down]:text-teal-600 [&[data-state=open]>div>svg.lucide-chevron-down]:text-teal-700">
+                  <div className="flex items-center gap-2">
+                    <Leaf className="h-5 w-5 text-teal-600" />
+                    Suggested Home Remedies
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="space-y-2 pt-2 pb-4 px-1 text-muted-foreground">
+                   {analysisResult.suggestedHomeRemedies && analysisResult.suggestedHomeRemedies.length > 0 ? (
+                     <ul className="list-disc list-inside pl-2 space-y-1">
+                        {analysisResult.suggestedHomeRemedies.map((item, idx) => <li key={idx}>{item}</li>)}
+                    </ul>
+                  ) : (
+                    <p>Suggestions for home remedies will appear here.</p>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="item-otc">
+                <AccordionTrigger className="text-base font-medium hover:no-underline [&[data-state=closed]>div>svg.lucide-chevron-down]:text-indigo-600 [&[data-state=open]>div>svg.lucide-chevron-down]:text-indigo-700">
+                  <div className="flex items-center gap-2">
+                    <Pill className="h-5 w-5 text-indigo-600" />
+                    Over-the-Counter Medication Ideas
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="space-y-2 pt-2 pb-4 px-1 text-muted-foreground">
+                  {analysisResult.otcMedicationIdeas && analysisResult.otcMedicationIdeas.length > 0 ? (
+                    <ul className="list-disc list-inside pl-2 space-y-1">
+                        {analysisResult.otcMedicationIdeas.map((item, idx) => <li key={idx}>{item}</li>)}
+                    </ul>
+                  ) : (
+                     <p>Ideas for over-the-counter medications will appear here.</p>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+            
+            {/* Fallback for Suggested Conditions if no summary */}
+            {(!analysisResult.symptomSummary || !analysisResult.symptomSummary.generalExplanation) && analysisResult.suggestedConditions && analysisResult.suggestedConditions.length > 0 && (
+                <div className="mt-6">
+                    <h3 className="text-lg font-semibold text-foreground mb-2">Further Potential Conditions:</h3>
+                    <Accordion type="single" collapsible className="w-full">
+                        {analysisResult.suggestedConditions.map((item, index) => (
+                        <AccordionItem value={`item-condition-${index}`} key={index}>
+                            <AccordionTrigger className="text-base font-medium hover:no-underline">
+                            <div className="flex items-center gap-2">
+                                {item.condition}
+                            </div>
+                            </AccordionTrigger>
+                            <AccordionContent className="space-y-4 pt-2 pb-4 px-1">
+                            <p className="text-sm text-muted-foreground">{item.explanation}</p>
+                            </AccordionContent>
+                        </AccordionItem>
+                        ))}
+                    </Accordion>
+                </div>
             )}
+            
+            <Alert variant="default" className="mt-8 bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-700">
+              <Info className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              <AlertTitle className="text-blue-700 dark:text-blue-300">Important Disclaimer</AlertTitle>
+              <AlertDescription className="text-blue-600 dark:text-blue-300/90">
+                The information provided by the AI Symptom Analyzer is for general informational purposes only, and does not constitute medical advice. It is not a substitute for professional medical advice, diagnosis, or treatment. Always seek the advice of your physician or other qualified health provider with any questions you may have regarding a medical condition.
+              </AlertDescription>
+            </Alert>
+
           </div>
         )}
       </CardContent>
