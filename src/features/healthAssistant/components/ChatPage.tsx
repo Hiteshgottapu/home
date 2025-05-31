@@ -1,7 +1,7 @@
 
 "use client";
 import React, { useState, useRef, useEffect, FormEvent } from "react";
-import { ChatMessage } from "./ChatMessage"; // Corrected to named import
+import ChatMessage from "./ChatMessage"; // Changed to default import
 import { EmergencyDialog } from "./EmergencyDialog";
 import type { Message, AIResponse } from "../types";
 import { handleUserMessage } from "../actions";
@@ -52,8 +52,8 @@ export function ChatPage() {
 
     const userMessage: Message = {
       id: Date.now().toString() + Math.random(),
-      text: input.trim(),
-      sender: "user",
+      role: "user", // Updated from sender to role
+      content: input.trim(), // Updated from text to content
       timestamp: new Date(),
     };
     setMessages((prev) => [...prev, userMessage]);
@@ -62,26 +62,37 @@ export function ChatPage() {
     setIsLoading(true);
 
     try {
-      const aiResponse: AIResponse = await handleUserMessage([...messages, userMessage], currentInput); 
+      // Map internal Message structure to what handleUserMessage expects (if different)
+      // For now, assuming handleUserMessage is adapted or expects similar fields
+      const conversationHistoryForAction = messages.map(msg => ({
+        id: msg.id,
+        text: typeof msg.content === 'string' ? msg.content : 'Complex content', // Simplify complex content for history
+        sender: msg.role, // map role to sender
+        timestamp: msg.timestamp,
+      }));
+
+
+      const aiResponse: AIResponse = await handleUserMessage(conversationHistoryForAction, currentInput); 
       
       if (aiResponse.isEmergency) {
         setEmergencyMessage(aiResponse.emergencyMessage);
         setShowEmergencyDialog(true);
         const emergencySystemMessage: Message = {
             id: Date.now().toString() + Math.random(),
-            text: aiResponse.emergencyMessage || "Emergency detected. Displaying critical alert.",
-            sender: "ai",
+            content: aiResponse.emergencyMessage || "Emergency detected. Displaying critical alert.",
+            role: "ai",
             timestamp: new Date(),
-            type: "emergency_alert"
+            // type: "emergency_alert" // type field is not in the new Message interface
         };
         setMessages(prev => [...prev, emergencySystemMessage]);
 
       } else if (aiResponse.text) {
         const aiMessage: Message = {
           id: Date.now().toString() + Math.random(),
-          text: aiResponse.text,
-          sender: "ai",
+          content: aiResponse.text,
+          role: "ai",
           timestamp: new Date(),
+          originalQuery: currentInput, // Store original query for potential regeneration
         };
         setMessages((prev) => [...prev, aiMessage]);
       }
@@ -90,8 +101,8 @@ export function ChatPage() {
       console.error("Error handling user message:", error);
       const errorMessage: Message = {
         id: Date.now().toString() + Math.random(),
-        text: "Sorry, I ran into a problem. Please try again.",
-        sender: "ai",
+        content: "Sorry, I ran into a problem. Please try again.",
+        role: "ai",
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);
@@ -105,6 +116,68 @@ export function ChatPage() {
       inputRef.current?.focus();
     }
   };
+
+  // Placeholder for onRegenerate logic
+  const handleRegenerateResponse = async (messageId: string, originalQuery: string) => {
+    console.log("Regenerating response for message ID:", messageId, "with query:", originalQuery);
+    setMessages(prevMessages => prevMessages.map(msg => msg.id === messageId ? { ...msg, isRegenerating: true } : msg));
+    setIsLoading(true);
+
+    try {
+      // Filter out the message being regenerated and any subsequent AI responses to it
+      const historyBeforeRegen = messages.filter(msg => msg.id !== messageId && msg.timestamp < (messages.find(m=>m.id === messageId)?.timestamp || new Date()));
+      
+      const conversationHistoryForAction = historyBeforeRegen.map(msg => ({
+        id: msg.id,
+        text: typeof msg.content === 'string' ? msg.content : 'Complex content',
+        sender: msg.role,
+        timestamp: msg.timestamp,
+      }));
+
+
+      const aiResponse = await handleUserMessage(conversationHistoryForAction, originalQuery);
+
+      if (aiResponse.isEmergency) {
+        setEmergencyMessage(aiResponse.emergencyMessage);
+        setShowEmergencyDialog(true);
+         setMessages(prevMessages => prevMessages.map(msg => 
+            msg.id === messageId 
+            ? { 
+                ...msg, 
+                content: aiResponse.emergencyMessage || "Emergency detected.", 
+                isRegenerating: false, 
+                timestamp: new Date() 
+              } 
+            : msg));
+      } else if (aiResponse.text) {
+        setMessages(prevMessages => prevMessages.map(msg => 
+            msg.id === messageId 
+            ? { 
+                ...msg, 
+                content: aiResponse.text, 
+                isRegenerating: false, 
+                timestamp: new Date(), 
+                originalQuery: originalQuery // Retain original query
+              } 
+            : msg));
+      }
+    } catch (error) {
+      console.error("Error regenerating response:", error);
+      setMessages(prevMessages => prevMessages.map(msg => 
+        msg.id === messageId 
+        ? { ...msg, content: "Failed to regenerate. Please try again.", isRegenerating: false, timestamp: new Date() } 
+        : msg
+      ));
+      toast({
+        variant: "destructive",
+        title: "Regeneration Failed",
+        description: "Could not regenerate the response.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -132,11 +205,11 @@ export function ChatPage() {
       </div>
       
       <ScrollArea className="flex-grow" viewportRef={scrollAreaViewportRef}>
-        <div className="space-y-1 p-4 pb-6"> {/* Added pb-6 for spacing above input area */}
+        <div className="space-y-1 p-4 pb-6">
           {messages.map((msg) => (
-            <ChatMessage key={msg.id} message={msg} />
+            <ChatMessage key={msg.id} message={msg} onRegenerate={handleRegenerateResponse} />
           ))}
-          {isLoading && messages.length > 0 && messages[messages.length-1].sender === 'user' && (
+          {isLoading && messages.length > 0 && messages[messages.length-1].role === 'user' && (
             <div className="flex items-start gap-2.5 my-3 animate-fadeIn justify-start">
                 <Avatar className="h-8 w-8 border border-primary/20 shrink-0">
                      <AvatarFallback className="bg-primary text-primary-foreground"><Bot size={18} /></AvatarFallback>

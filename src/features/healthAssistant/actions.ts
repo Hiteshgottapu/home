@@ -1,12 +1,22 @@
 
 "use server";
-import type { Message, AIResponse } from "./types";
+// import type { Message, AIResponse } from "./types"; // Original types
+import type { Message as ChatPageMessage } from "./types"; // Type from ChatPage for history
+import type { AIResponse } from "./types"; // AIResponse type is fine
 import { emergencyCheckFlow } from "@/ai/flows/emergencyCheckFlow";
-import { generalChatFlow } from "@/ai/flows/generalChatFlow";
-// Import other specific AI flows here as they are developed
+import { generalChatFlow, GeneralChatInput } from "@/ai/flows/generalChatFlow";
+
+
+// Type for history expected by generalChatFlow
+interface ChatHistoryMessageForFlow {
+  role: 'user' | 'model';
+  parts: { text: string }[];
+}
+
 
 export async function handleUserMessage(
-  conversationHistory: Message[],
+  // Use the Message type from ChatPage for incoming conversation history
+  conversationHistory: { id: string; text: string; sender: "user" | "ai"; timestamp: Date; }[],
   newMessageText: string
 ): Promise<AIResponse> {
   console.log("HealthAssistant Action: Received new message:", newMessageText);
@@ -23,13 +33,18 @@ export async function handleUserMessage(
       };
     }
 
-    // 2. If not an emergency, proceed with general chat or more sophisticated routing
-    // For now, we'll use a general chat flow.
-    // In a more advanced setup, you might call a router flow here.
-    const generalChatInput = {
+    // 2. If not an emergency, proceed with general chat
+    // Map ChatPage history to the format expected by generalChatFlow
+    const flowHistory: ChatHistoryMessageForFlow[] = conversationHistory.map(msg => ({
+        role: msg.sender === 'user' ? 'user' : 'model',
+        parts: [{ text: msg.text }] 
+    }));
+    
+    const generalChatInput: GeneralChatInput = {
       userQuery: newMessageText,
-      history: conversationHistory.map(msg => ({role: msg.sender === 'user' ? 'user' : 'model', parts: [{text: msg.text}]})),
+      history: flowHistory,
     };
+    
     const chatResponse = await generalChatFlow(generalChatInput);
     
     console.log("HealthAssistant Action: General chat flow response:", chatResponse.responseText);
