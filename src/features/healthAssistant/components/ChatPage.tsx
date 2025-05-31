@@ -52,8 +52,8 @@ export function ChatPage() {
 
     const userMessage: Message = {
       id: Date.now().toString() + Math.random(),
-      role: "user", // Updated from sender to role
-      content: input.trim(), // Updated from text to content
+      role: "user",
+      content: input.trim(),
       timestamp: new Date(),
     };
     setMessages((prev) => [...prev, userMessage]);
@@ -62,12 +62,10 @@ export function ChatPage() {
     setIsLoading(true);
 
     try {
-      // Map internal Message structure to what handleUserMessage expects (if different)
-      // For now, assuming handleUserMessage is adapted or expects similar fields
       const conversationHistoryForAction = messages.map(msg => ({
         id: msg.id,
-        text: typeof msg.content === 'string' ? msg.content : 'Complex content', // Simplify complex content for history
-        sender: msg.role, // map role to sender
+        text: typeof msg.content === 'string' ? msg.content : 'Complex content', 
+        sender: msg.role, // Using 'role' here but action expects 'sender'
         timestamp: msg.timestamp,
       }));
 
@@ -82,7 +80,6 @@ export function ChatPage() {
             content: aiResponse.emergencyMessage || "Emergency detected. Displaying critical alert.",
             role: "ai",
             timestamp: new Date(),
-            // type: "emergency_alert" // type field is not in the new Message interface
         };
         setMessages(prev => [...prev, emergencySystemMessage]);
 
@@ -92,7 +89,7 @@ export function ChatPage() {
           content: aiResponse.text,
           role: "ai",
           timestamp: new Date(),
-          originalQuery: currentInput, // Store original query for potential regeneration
+          originalQuery: currentInput,
         };
         setMessages((prev) => [...prev, aiMessage]);
       }
@@ -117,20 +114,18 @@ export function ChatPage() {
     }
   };
 
-  // Placeholder for onRegenerate logic
   const handleRegenerateResponse = async (messageId: string, originalQuery: string) => {
     console.log("Regenerating response for message ID:", messageId, "with query:", originalQuery);
     setMessages(prevMessages => prevMessages.map(msg => msg.id === messageId ? { ...msg, isRegenerating: true } : msg));
     setIsLoading(true);
 
     try {
-      // Filter out the message being regenerated and any subsequent AI responses to it
       const historyBeforeRegen = messages.filter(msg => msg.id !== messageId && msg.timestamp < (messages.find(m=>m.id === messageId)?.timestamp || new Date()));
       
       const conversationHistoryForAction = historyBeforeRegen.map(msg => ({
         id: msg.id,
         text: typeof msg.content === 'string' ? msg.content : 'Complex content',
-        sender: msg.role,
+        sender: msg.role, // Using 'role' here
         timestamp: msg.timestamp,
       }));
 
@@ -157,7 +152,7 @@ export function ChatPage() {
                 content: aiResponse.text, 
                 isRegenerating: false, 
                 timestamp: new Date(), 
-                originalQuery: originalQuery // Retain original query
+                originalQuery: originalQuery 
               } 
             : msg));
       }
@@ -205,7 +200,7 @@ export function ChatPage() {
       </div>
       
       <ScrollArea className="flex-grow" viewportRef={scrollAreaViewportRef}>
-        <div className="space-y-1 p-4 pb-6">
+        <div className="space-y-1 p-4 pb-24">
           {messages.map((msg) => (
             <ChatMessage key={msg.id} message={msg} onRegenerate={handleRegenerateResponse} />
           ))}
@@ -221,6 +216,9 @@ export function ChatPage() {
                           VitaLog AI is thinking...
                         </p>
                     </div>
+                    <p className="text-xs text-muted-foreground/80 mt-1 ml-1">
+                        {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
                  </div>
             </div>
           )}
