@@ -83,9 +83,9 @@ const fetchMedicinePricesTool = ai.defineTool(
 
 const MedicationSchema = z.object({
   name: z.string().describe('The name of the medication.'),
-  dosage: z.string().optional().describe('The dosage of the medication (e.g., "10mg", "1 tablet").'),
-  frequency: z.string().optional().describe('The frequency of administration (e.g., "once daily", "2 times a day").'),
-  notes: z.string().optional().describe('Any other relevant notes for this specific medication (e.g., "after food", "for 7 days").'),
+  dosage: z.string().nullable().optional().describe('The dosage of the medication (e.g., "10mg", "1 tablet").'),
+  frequency: z.string().nullable().optional().describe('The frequency of administration (e.g., "once daily", "2 times a day").'),
+  notes: z.string().nullable().optional().describe('Any other relevant notes for this specific medication (e.g., "after food", "for 7 days").'),
   prices: z.array(PharmacyPriceSchema).optional().describe('List of prices found for this medication from various pharmacies. This should be populated by using the fetchMedicinePricesTool.')
 });
 
@@ -99,9 +99,9 @@ const ExtractScriptDetailsInputSchema = z.object({
 export type ExtractScriptDetailsInput = z.infer<typeof ExtractScriptDetailsInputSchema>;
 
 const ExtractScriptDetailsOutputSchema = z.object({
-  patientName: z.string().optional().describe('The name of the patient, if identifiable.'),
-  doctorName: z.string().optional().describe('The name of the prescribing doctor, if identifiable.'),
-  prescriptionDate: z.string().optional().describe('The date the prescription was issued, if identifiable (e.g., YYYY-MM-DD).'),
+  patientName: z.string().nullable().optional().describe('The name of the patient, if identifiable.'),
+  doctorName: z.string().nullable().optional().describe('The name of the prescribing doctor, if identifiable.'),
+  prescriptionDate: z.string().nullable().optional().describe('The date the prescription was issued, if identifiable (e.g., YYYY-MM-DD).'),
   medications: z
     .array(MedicationSchema)
     .describe('A list of extracted medication details, including pricing information obtained via the provided tool.'),
@@ -128,19 +128,19 @@ Analyze the provided image of a medical script or prescription.
 Image: {{media url=scriptImageUri}}
 
 Extract the following details as accurately as possible:
-1.  Patient's Name (if clearly visible)
-2.  Prescribing Doctor's Name (if clearly visible)
-3.  Date of Prescription (if clearly visible, format as YYYY-MM-DD)
+1.  Patient's Name (if clearly visible, otherwise set to null or omit)
+2.  Prescribing Doctor's Name (if clearly visible, otherwise set to null or omit)
+3.  Date of Prescription (if clearly visible, format as YYYY-MM-DD, otherwise set to null or omit)
 4.  A list of all medications. For each medication, provide:
     - Name of the medication.
-    - Dosage (e.g., "10mg", "1 tablet", "5ml").
-    - Frequency (e.g., "once daily", "twice a day before meals", "every 6 hours").
-    - Any other short, relevant notes for that specific medication (e.g. "for 7 days", "if needed for pain").
-    - For EACH medication identified, you MUST use the 'fetchMedicinePricesTool' to get its current market prices. Include these prices in the 'prices' array for that medication. If the tool returns no prices, the 'prices' array should be empty.
+    - Dosage (e.g., "10mg", "1 tablet", "5ml", if not present set to null or omit).
+    - Frequency (e.g., "once daily", "twice a day before meals", "every 6 hours", if not present set to null or omit).
+    - Any other short, relevant notes for that specific medication (e.g. "for 7 days", "if needed for pain", if not present set to null or omit).
+    - For EACH medication identified, you MUST use the 'fetchMedicinePricesTool' to get its current market prices. Include these prices in the 'prices' array for that medication. If the tool returns no prices, the 'prices' array should be empty or omitted.
 5.  If possible, provide an overall confidence score (0 to 1) for the accuracy of the entire extraction.
 6.  List any specific words, names, or sections that were particularly unclear or illegible.
 
-Focus on accuracy and structure. If a piece of information is not clearly visible or legible, omit it or explicitly state it's unclear in the 'unclearSections' field rather than guessing.
+Focus on accuracy and structure. If a piece of information is not clearly visible or legible, set its value to null or omit the field if it's optional, rather than guessing. Ensure that values for fields like patientName, doctorName, prescriptionDate, dosage, frequency, and notes are strings if present, or null/omitted if not found.
 Ensure your output strictly adheres to the JSON schema provided for the output, including the pricing information obtained from the tool.
 `,
   },
@@ -170,9 +170,14 @@ const extractScriptDetailsFlow = ai.defineFlow(
 
     if (!llmResponse || !llmResponse.output) {
       console.error('extractScriptDetailsAgenticFlow: LLM did not return an output after potential tool use.');
+      // Provide a default structure compliant with the schema, marking unclear sections.
       return {
         medications: [],
-        unclearSections: ["The AI model did not return any structured data. This could be due to image quality, content policy, or issues with tool interaction."]
+        unclearSections: ["The AI model did not return any structured data. This could be due to image quality, content policy, or issues with tool interaction."],
+        patientName: null,
+        doctorName: null,
+        prescriptionDate: null,
+        overallConfidence: 0
       };
     }
 
